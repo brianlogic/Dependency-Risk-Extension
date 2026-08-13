@@ -1,0 +1,14 @@
+.vscode/**
+.dep-risk/**
+**/.dep-risk/**
+src/**
+test/**
+fixtures/**
+scripts/**
+node_modules/**
+.gitignore
+tsconfig.json
+esbuild.js
+**/*.ts
+**/*.map
+!dist/**/*.js

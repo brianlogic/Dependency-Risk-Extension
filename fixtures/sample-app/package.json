@@ -1,0 +1,15 @@
+{
+  "name": "dep-risk-sample-app",
+  "version": "1.0.0",
+  "private": true,
+  "engines": {
+    "node": "18"
+  },
+  "dependencies": {
+    "lodash": "4.17.20",
+    "minimist": "1.2.5"
+  },
+  "devDependencies": {
+    "semver": "5.7.0"
+  }
+}

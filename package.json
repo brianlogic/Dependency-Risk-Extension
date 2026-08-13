@@ -1,0 +1,174 @@
+{
+  "name": "dependency-version-risk",
+  "displayName": "Dependency Version Risk",
+  "description": "Live CVE, stale, and EOL risk for npm dependencies — sidebar tree, package.json diagnostics, and agent-assisted upgrades.",
+  "version": "0.2.0",
+  "publisher": "local",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other",
+    "Linters"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "workspaceContains:**/package-lock.json",
+    "workspaceContains:**/npm-shrinkwrap.json",
+    "workspaceContains:**/pnpm-lock.yaml",
+    "workspaceContains:**/yarn.lock",
+    "onView:depRisk.sidebar",
+    "onCommand:depRisk.refresh",
+    "onCommand:depRisk.show"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "depRisk",
+          "title": "Dep Risk",
+          "icon": "media/dep-risk.svg"
+        }
+      ]
+    },
+    "views": {
+      "depRisk": [
+        {
+          "id": "depRisk.sidebar",
+          "name": "Live Risks",
+          "contextualTitle": "Dependency Risk"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "depRisk.show",
+        "title": "Dep Risk: Show Sidebar",
+        "icon": "$(shield)"
+      },
+      {
+        "command": "depRisk.refresh",
+        "title": "Dep Risk: Refresh",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "depRisk.askAgentFix",
+        "title": "Ask Agent to Upgrade + Fix",
+        "icon": "$(sparkle)"
+      },
+      {
+        "command": "depRisk.openAdvisory",
+        "title": "Dep Risk: Open Advisory"
+      },
+      {
+        "command": "depRisk.openChangelog",
+        "title": "Dep Risk: Open Changelog / Release Notes"
+      },
+      {
+        "command": "depRisk.copyAgentPrompt",
+        "title": "Dep Risk: Copy Agent Prompt"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "depRisk.refresh",
+          "when": "view == depRisk.sidebar",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "depRisk.askAgentFix",
+          "when": "view == depRisk.sidebar && viewItem =~ /depRisk\\.package/",
+          "group": "inline@1"
+        },
+        {
+          "command": "depRisk.openAdvisory",
+          "when": "view == depRisk.sidebar && viewItem =~ /depRisk\\.package/",
+          "group": "1_nav@1"
+        },
+        {
+          "command": "depRisk.openChangelog",
+          "when": "view == depRisk.sidebar && viewItem =~ /depRisk\\.package/",
+          "group": "1_nav@2"
+        },
+        {
+          "command": "depRisk.copyAgentPrompt",
+          "when": "view == depRisk.sidebar && viewItem =~ /depRisk\\.package/",
+          "group": "1_nav@3"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Dependency Version Risk",
+      "properties": {
+        "depRisk.autoScanOnLockfileChange": {
+          "type": "boolean",
+          "default": true,
+          "description": "Re-scan when package-lock.json / pnpm-lock.yaml / yarn.lock changes."
+        },
+        "depRisk.dailyRescanHours": {
+          "type": "number",
+          "default": 24,
+          "minimum": 1,
+          "description": "Background re-scan interval in hours (advisories publish continuously)."
+        },
+        "depRisk.staleMajorVersionsBehind": {
+          "type": "number",
+          "default": 2,
+          "minimum": 1,
+          "description": "Major versions behind latest before a package is marked Stale."
+        },
+        "depRisk.maintainerInactiveMonths": {
+          "type": "number",
+          "default": 18,
+          "minimum": 1,
+          "description": "Months since last npm publish before marking Stale (inactive maintainer)."
+        },
+        "depRisk.eolHorizonMonths": {
+          "type": "number",
+          "default": 6,
+          "minimum": 1,
+          "description": "Months until runtime/framework EOL to flag as EOL-adjacent."
+        },
+        "depRisk.scanTransitive": {
+          "type": "boolean",
+          "default": true,
+          "description": "Include transitive dependencies from the lockfile in OSV queries."
+        },
+        "depRisk.maxPackagesPerScan": {
+          "type": "number",
+          "default": 1000,
+          "minimum": 1,
+          "maximum": 5000,
+          "description": "Cap on packages sent to OSV per scan (querybatch limit is 1000 per request; larger sets are chunked)."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "node esbuild.js --production",
+    "watch": "node esbuild.js --watch",
+    "check": "tsc --noEmit",
+    "test": "tsx --test test/**/*.test.ts",
+    "verify": "npm run check && npm test && npm run compile",
+    "package": "vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.30",
+    "@types/semver": "^7.8.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.9.2",
+    "esbuild": "^0.25.0",
+    "tsx": "^4.23.12",
+    "typescript": "^5.4.5"
+  },
+  "dependencies": {
+    "@pandatix/js-cvss": "^0.4.4",
+    "jsonc-parser": "^3.3.1",
+    "semver": "^7.6.3"
+  }
+}
