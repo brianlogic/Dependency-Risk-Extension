@@ -48,12 +48,16 @@ export async function fetchJson<T>(
       if (!text) {
         return {} as T;
       }
-      return JSON.parse(text) as T;
+      try {
+        return JSON.parse(text) as T;
+      } catch {
+        throw new Error(`Invalid JSON from ${url}`);
+      }
     } catch (error) {
-      if (
-        attempt < retries &&
-        !(error instanceof HttpError && error.status < 500 && error.status !== 429)
-      ) {
+      const retryableHttp =
+        error instanceof HttpError && (error.status === 429 || error.status >= 500);
+      const retryableNetwork = !(error instanceof HttpError) && !String(error).includes("Invalid JSON");
+      if (attempt < retries && (retryableHttp || retryableNetwork)) {
         await delay(retryDelayMs(attempt));
         continue;
       }

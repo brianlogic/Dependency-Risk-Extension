@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  isQueryableNpmVersion,
+  nextPatchAfter,
   pickSafeBump,
   pickSafeBumpForAdvisories,
 } from "../src/util/semver";
@@ -35,5 +37,16 @@ describe("safe upgrade targets", () => {
       pickSafeBumpForAdvisories("1.9.0", [["2.0.1", "3.0.0"]]),
       "2.0.1"
     );
+  });
+
+  it("derives a patch after last_affected", () => {
+    assert.equal(nextPatchAfter("4.5.0"), "4.5.1");
+  });
+
+  it("rejects git and file versions for OSV queries", () => {
+    assert.equal(isQueryableNpmVersion("1.2.3"), true);
+    assert.equal(isQueryableNpmVersion("git+https://github.com/foo/bar.git"), false);
+    assert.equal(isQueryableNpmVersion("file:../local"), false);
+    assert.equal(isQueryableNpmVersion("workspace:*"), false);
   });
 });

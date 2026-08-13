@@ -61,7 +61,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const url = risk?.advisoryUrls[0] ?? risk?.changelogUrl;
       if (url) {
         await vscode.env.openExternal(vscode.Uri.parse(url));
+        return;
       }
+      void vscode.window.showInformationMessage("No advisory or changelog URL is available for this item.");
     }),
     vscode.commands.registerCommand("depRisk.openChangelog", async (item?: PackageItem) => {
       const risk = item?.risk ?? (await pickRisk());
@@ -84,6 +86,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 }
 
 export function deactivate(): void {
+  scanCancellation?.cancel();
   if (dailyTimer) {
     clearInterval(dailyTimer);
   }

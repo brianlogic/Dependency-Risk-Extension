@@ -1,24 +1,9 @@
 import * as fs from "fs/promises";
 import * as vscode from "vscode";
+import { extractImportedPackageNames } from "./specifiers";
 
 const IGNORE = "{**/node_modules/**,**/dist/**,**/out/**,**/build/**,**/.git/**,**/coverage/**,**/.next/**}";
-
-const IMPORT_RE =
-  /(?:import\s+(?:type\s+)?(?:[\s\S]*?\s+from\s+)?|export\s+(?:type\s+)?(?:[\s\S]*?\s+from\s+)?|require\s*\(\s*|import\s*\(\s*)['"]([^'"]+)['"]/g;
-
-function packageNameFromSpecifier(spec: string): string | undefined {
-  if (!spec || spec.startsWith(".") || spec.startsWith("/") || spec.startsWith("node:")) {
-    return undefined;
-  }
-  if (spec.startsWith("@")) {
-    const parts = spec.split("/");
-    if (parts.length >= 2) {
-      return `${parts[0]}/${parts[1]}`;
-    }
-    return undefined;
-  }
-  return spec.split("/")[0];
-}
+const FILE_CAP = 4000;
 
 /**
  * Scan workspace sources for import/require targets.
@@ -26,15 +11,22 @@ function packageNameFromSpecifier(spec: string): string | undefined {
  */
 export async function collectImportedPackages(
   folder: vscode.WorkspaceFolder,
-  token?: vscode.CancellationToken
+  token?: vscode.CancellationToken,
+  onWarning?: (message: string) => void
 ): Promise<Set<string>> {
   const imported = new Set<string>();
   const files = await vscode.workspace.findFiles(
     new vscode.RelativePattern(folder, "**/*.{js,jsx,ts,tsx,mjs,cjs,vue,svelte}"),
     IGNORE,
-    4000,
+    FILE_CAP,
     token
   );
+
+  if (files.length >= FILE_CAP) {
+    onWarning?.(
+      `Import scan reached the ${FILE_CAP}-file cap; some used packages may be classified as transitive-only.`
+    );
+  }
 
   for (const uri of files) {
     if (token?.isCancellationRequested) {
@@ -42,13 +34,8 @@ export async function collectImportedPackages(
     }
     try {
       const text = await fs.readFile(uri.fsPath, "utf8");
-      IMPORT_RE.lastIndex = 0;
-      let m: RegExpExecArray | null;
-      while ((m = IMPORT_RE.exec(text))) {
-        const name = packageNameFromSpecifier(m[1]);
-        if (name) {
-          imported.add(name);
-        }
+      for (const name of extractImportedPackageNames(text)) {
+        imported.add(name);
       }
     } catch {
       // unreadable

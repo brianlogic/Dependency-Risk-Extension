@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, it } from "node:test";
-import { parseNpmLockfile } from "../src/lockfile/npm";
+import { isHoistedOrWorkspaceInstall, parseNpmLockfile } from "../src/lockfile/npm";
 import { parseYarnLockfile } from "../src/lockfile/yarn";
 
 const temporaryDirectories: string[] = [];
@@ -62,6 +62,29 @@ describe("npm lockfile parsing", () => {
     assert.equal(
       packages.find((pkg) => pkg.name === "leaf")?.lockPath,
       "node_modules/parent/node_modules/child/node_modules/leaf"
+    );
+  });
+
+  it("infers names from workspace node_modules paths", async () => {
+    const filename = await writeLockfile({
+      lockfileVersion: 3,
+      packages: {
+        "packages/app/node_modules/lodash": { version: "4.17.20" },
+      },
+    });
+
+    const packages = await parseNpmLockfile(filename);
+    assert.deepEqual(packages, [
+      {
+        name: "lodash",
+        version: "4.17.20",
+        lockPath: "packages/app/node_modules/lodash",
+      },
+    ]);
+    assert.equal(isHoistedOrWorkspaceInstall("packages/app/node_modules/lodash", "lodash"), true);
+    assert.equal(
+      isHoistedOrWorkspaceInstall("node_modules/parent/node_modules/lodash", "lodash"),
+      false
     );
   });
 });

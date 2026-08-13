@@ -7,10 +7,12 @@ import { collectImportedPackages } from "../graph/imports";
 import {
   directDependencyNames,
   findLockfiles,
+  isHoistedOrWorkspaceInstall,
   parseNpmLockfile,
   readPackageManifest,
   type LockPackage,
 } from "../lockfile/npm";
+import { isQueryableNpmVersion } from "../util/semver";
 import { parsePnpmLockfile } from "../lockfile/pnpm";
 import { parseYarnLockfile } from "../lockfile/yarn";
 import { OsvClient } from "../osv/client";
@@ -79,9 +81,20 @@ export class ScanPipeline {
     enginesNode = (await readPinnedNodeVersion(folder.uri.fsPath)) ?? enginesNode;
 
     onProgress("Scanning imports", `${manifests.length} package.json`);
-    const imported = await collectImportedPackages(folder, opts?.token);
+    const imported = await collectImportedPackages(folder, opts?.token, (warning) =>
+      errors.push(warning)
+    );
 
-    let packages = this.toPackageRefs(lockPackages, direct, imported, cfg);
+    const queryable = lockPackages.filter((lp) => isQueryableNpmVersion(lp.version));
+    if (queryable.length < lockPackages.length) {
+      errors.push(
+        `Skipped ${lockPackages.length - queryable.length} non-registry lockfile ${
+          lockPackages.length - queryable.length === 1 ? "entry" : "entries"
+        } (git/file/link/workspace).`
+      );
+    }
+
+    let packages = this.toPackageRefs(queryable, direct, imported, cfg);
     if (packages.length > cfg.maxPackagesPerScan) {
       // Prefer direct + imported, then fill with transitive
       const omitted = packages.length - cfg.maxPackagesPerScan;
@@ -112,7 +125,7 @@ export class ScanPipeline {
     const metaByName = new Map<string, Awaited<ReturnType<NpmRegistry["getMeta"]>>>();
     await mapPool([...registryNames], 6, async (name) => {
       try {
-        metaByName.set(name, await this.npm.getMeta(name));
+        metaByName.set(name, await this.npm.getMeta(name, { force: opts?.force }));
       } catch (e) {
         errors.push(`npm ${name}: ${String(e)}`);
       }
@@ -235,11 +248,8 @@ export class ScanPipeline {
   ): PackageRef[] {
     const refs: PackageRef[] = [];
     for (const lp of lockPackages) {
-      // npm lockfiles can contain several versions of the same package. Only
-      // the root node_modules entry satisfies the root manifest declaration;
-      // nested copies must remain transitive.
       const isDirect =
-        direct.has(lp.name) && lp.lockPath === `node_modules/${lp.name}`;
+        direct.has(lp.name) && isHoistedOrWorkspaceInstall(lp.lockPath, lp.name);
       const isImported = imported.has(lp.name);
       if (!cfg.scanTransitive && !isDirect && !isImported) {
         continue;

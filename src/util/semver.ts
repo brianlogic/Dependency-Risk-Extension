@@ -111,7 +111,11 @@ export function pickSafeBumpForAdvisories(
   return required.sort(semver.rcompare)[0];
 }
 
-/** Extract introduced/fixed pairs from OSV events for a package name. */
+/**
+ * Extract remediation versions from OSV range events.
+ * `fixed` is preferred. When only `last_affected` is present, the next
+ * semver patch is the lowest version that is no longer in the affected range.
+ */
 export function fixedVersionsFromOsvEvents(
   events: Array<{ introduced?: string; fixed?: string; last_affected?: string }>
 ): string[] {
@@ -119,9 +123,38 @@ export function fixedVersionsFromOsvEvents(
   for (const e of events) {
     if (e.fixed) {
       fixed.push(e.fixed);
+      continue;
+    }
+    if (e.last_affected) {
+      const next = nextPatchAfter(e.last_affected);
+      if (next) {
+        fixed.push(next);
+      }
     }
   }
   return fixed;
+}
+
+export function nextPatchAfter(version: string): string | undefined {
+  const coerced = semver.coerce(version);
+  if (!coerced) {
+    return undefined;
+  }
+  return semver.inc(coerced, "patch") ?? undefined;
+}
+
+/** True when a lockfile version is a concrete registry semver OSV can query. */
+export function isQueryableNpmVersion(version: string): boolean {
+  if (!version) {
+    return false;
+  }
+  if (/^(git\+?|git@|http:|https:|file:|link:|workspace:|npm:|github:|gitlab:)/i.test(version)) {
+    return false;
+  }
+  if (version.includes("://") || version.includes("/")) {
+    return false;
+  }
+  return semver.valid(semver.coerce(version)) != null;
 }
 
 export function monthsBetween(fromIso: string, to = new Date()): number {

@@ -50,4 +50,44 @@ describe("data-source normalization", () => {
     );
     assert.deepEqual(summary.fixedVersions, ["1.2.4"]);
   });
+
+  it("treats last_affected as the next patch when no fixed event exists", () => {
+    const summary = toVulnSummary(
+      {
+        id: "GHSA-last-affected",
+        affected: [
+          {
+            package: { ecosystem: "npm", name: "lodash.template" },
+            ranges: [{ type: "SEMVER", events: [{ last_affected: "4.5.0" }] }],
+          },
+        ],
+      },
+      "lodash.template"
+    );
+    assert.deepEqual(summary.fixedVersions, ["4.5.1"]);
+  });
+
+  it("does not treat negated exploit language as a public exploit", () => {
+    const summary = toVulnSummary(
+      {
+        id: "GHSA-no-exploit",
+        details: "There is no known exploit in the wild for this issue.",
+        references: [{ type: "ADVISORY", url: "https://github.com/advisories/GHSA-no-exploit" }],
+      },
+      "example"
+    );
+    assert.equal(summary.hasPublicExploit, false);
+  });
+
+  it("flags exploit-db references as a public exploit", () => {
+    const summary = toVulnSummary(
+      {
+        id: "GHSA-exploit",
+        details: "A remote attacker can execute code.",
+        references: [{ type: "EVIDENCE", url: "https://www.exploit-db.com/exploits/12345" }],
+      },
+      "example"
+    );
+    assert.equal(summary.hasPublicExploit, true);
+  });
 });

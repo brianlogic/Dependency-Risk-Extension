@@ -120,13 +120,20 @@ function severityFromScore(
   return "LOW";
 }
 
-function detectPublicExploit(vuln: OsvVuln): boolean {
+export function detectPublicExploit(vuln: Pick<OsvVuln, "details" | "references" | "database_specific">): boolean {
   const blob = `${vuln.details ?? ""} ${JSON.stringify(vuln.database_specific ?? {})}`.toLowerCase();
+  if (
+    blob.includes("no known exploit") ||
+    blob.includes("no public exploit") ||
+    blob.includes("not exploited") ||
+    blob.includes("no exploit in the wild")
+  ) {
+    return false;
+  }
+
   const exploitReference = (vuln.references ?? []).some((reference) => {
-    const type = String(reference.type ?? "").toUpperCase();
     const url = String(reference.url ?? "").toLowerCase();
     return (
-      type === "EVIDENCE" ||
       url.includes("exploit-db.com") ||
       url.includes("metasploit") ||
       url.includes("packetstormsecurity.com")
@@ -140,7 +147,6 @@ function detectPublicExploit(vuln: OsvVuln): boolean {
     blob.includes("public exploit") ||
     blob.includes("proof of concept") ||
     blob.includes("proof-of-concept") ||
-    blob.includes("in the wild") ||
     blob.includes("weaponized")
   );
 }

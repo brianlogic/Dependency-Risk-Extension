@@ -47,8 +47,8 @@ function normalizeRepoUrl(repo: NpmRegistryResponse["repository"]): string | und
 export class NpmRegistry {
   constructor(private readonly cache: RiskCache) {}
 
-  async getMeta(name: string): Promise<NpmPackageMeta | undefined> {
-    const cached = this.cache.getNpmMeta(name, META_TTL_MS);
+  async getMeta(name: string, opts?: { force?: boolean }): Promise<NpmPackageMeta | undefined> {
+    const cached = opts?.force ? undefined : this.cache.getNpmMeta(name, META_TTL_MS);
     if (cached) {
       const raw = cached.raw as NpmRegistryResponse;
       return {
@@ -78,11 +78,14 @@ export class NpmRegistry {
   }
 
   changelogUrl(name: string, meta?: NpmPackageMeta): string {
-    if (meta?.repositoryUrl) {
+    if (meta?.repositoryUrl && /github\.com|gitlab\.com/i.test(meta.repositoryUrl)) {
       return `${meta.repositoryUrl}/releases`;
     }
     if (meta?.homepage) {
       return meta.homepage;
+    }
+    if (meta?.repositoryUrl) {
+      return meta.repositoryUrl;
     }
     return `https://www.npmjs.com/package/${name}?activeTab=versions`;
   }

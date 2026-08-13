@@ -38,14 +38,14 @@ interface NpmLockV2 {
   >;
 }
 
-function nameFromNodeModulesPath(lockPath: string): string | undefined {
-  if (!lockPath.startsWith("node_modules/")) {
-    return undefined;
-  }
-  const rest = lockPath.slice("node_modules/".length);
-  // Last package segment — handles nested node_modules and scopes
-  const parts = rest.split("/node_modules/");
-  const leaf = parts[parts.length - 1];
+export function nameFromNodeModulesPath(lockPath: string): string | undefined {
+  const parts = lockPath.split("/node_modules/");
+  const leaf =
+    parts.length > 1
+      ? parts[parts.length - 1]
+      : lockPath.startsWith("node_modules/")
+        ? lockPath.slice("node_modules/".length)
+        : undefined;
   if (!leaf) {
     return undefined;
   }
@@ -57,6 +57,19 @@ function nameFromNodeModulesPath(lockPath: string): string | undefined {
     return undefined;
   }
   return leaf.split("/")[0];
+}
+
+/** Root or workspace install, not a nested copy under another package. */
+export function isHoistedOrWorkspaceInstall(lockPath: string, name: string): boolean {
+  const suffix = `node_modules/${name}`;
+  if (lockPath === suffix) {
+    return true;
+  }
+  if (!lockPath.endsWith(`/${suffix}`)) {
+    return false;
+  }
+  const prefix = lockPath.slice(0, lockPath.length - suffix.length);
+  return !prefix.includes("node_modules");
 }
 
 export async function readPackageManifest(manifestPath: string): Promise<ManifestDeps> {
