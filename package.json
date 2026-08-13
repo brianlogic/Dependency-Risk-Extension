@@ -3,10 +3,17 @@
   "displayName": "Dependency Version Risk",
   "description": "Live CVE, stale, and EOL risk for npm dependencies — sidebar tree, package.json diagnostics, and agent-assisted upgrades.",
   "version": "0.2.0",
-  "publisher": "local",
+  "publisher": "BT23",
   "engines": {
     "vscode": "^1.85.0"
   },
+  "license": "MIT",
+  "icon": "media/dep-risk.png",
+  "keywords": ["npm", "security", "cve", "dependencies", "osv", "cursor"], 
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/brianlogic/Dependency-Risk-Extension-"
+    },
   "categories": [
     "Other",
     "Linters"
