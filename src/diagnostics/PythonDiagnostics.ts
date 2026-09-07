@@ -1,5 +1,7 @@
+import * as path from "path";
 import * as vscode from "vscode";
-import { findDependencyNameAtOffset, findDependencyOffsets } from "./packageJsonRanges";
+import { findPythonDependencyNameAtOffset, findPythonDependencyOffsets } from "./pythonRanges";
+import { namesMatch } from "../util/version";
 import type { RiskResult, ScanSummary } from "../types";
 
 const SEVERITY: Record<string, vscode.DiagnosticSeverity> = {
@@ -9,10 +11,12 @@ const SEVERITY: Record<string, vscode.DiagnosticSeverity> = {
   eol: vscode.DiagnosticSeverity.Information,
 };
 
+const IGNORE = "{**/node_modules/**,**/.venv/**,**/venv/**,**/.tox/**}";
+
 /**
- * Surface lightweight diagnostics on package.json dependency lines for direct deps.
+ * Surface diagnostics on requirements*.txt and pyproject.toml for direct PyPI deps.
  */
-export class PackageJsonDiagnostics implements vscode.Disposable {
+export class PythonDiagnostics implements vscode.Disposable {
   private readonly collection: vscode.DiagnosticCollection;
   private readonly disposables: vscode.Disposable[] = [];
   private lastSummary: ScanSummary | undefined;
@@ -21,11 +25,11 @@ export class PackageJsonDiagnostics implements vscode.Disposable {
   private readonly riskByDiagnostic = new WeakMap<vscode.Diagnostic, RiskResult>();
 
   constructor() {
-    this.collection = vscode.languages.createDiagnosticCollection("depRisk");
+    this.collection = vscode.languages.createDiagnosticCollection("depRisk.python");
     this.disposables.push(
       this.collection,
       vscode.workspace.onDidChangeTextDocument((e) => {
-        if (e.document.fileName.endsWith("package.json") && this.lastFolder) {
+        if (isPythonManifest(e.document.fileName) && this.lastFolder) {
           if (this.reapplyTimer) {
             clearTimeout(this.reapplyTimer);
           }
@@ -47,7 +51,7 @@ export class PackageJsonDiagnostics implements vscode.Disposable {
 
     const byName = new Map<string, RiskResult>();
     for (const r of summary.results) {
-      if (r.tier === "eol" || r.signals.pkg.ecosystem !== "npm" || !r.signals.pkg.direct) {
+      if (r.tier === "eol" || r.signals.pkg.ecosystem !== "pypi" || !r.signals.pkg.direct) {
         continue;
       }
       const prev = byName.get(r.signals.pkg.name);
@@ -57,8 +61,8 @@ export class PackageJsonDiagnostics implements vscode.Disposable {
     }
 
     const manifests = await vscode.workspace.findFiles(
-      new vscode.RelativePattern(folder, "**/package.json"),
-      "**/node_modules/**",
+      new vscode.RelativePattern(folder, "{**/requirements*.txt,**/pyproject.toml}"),
+      IGNORE,
       200
     );
 
@@ -68,10 +72,14 @@ export class PackageJsonDiagnostics implements vscode.Disposable {
         const text = document.getText();
         const diagnostics: vscode.Diagnostic[] = [];
         for (const [name, risk] of byName) {
-          const range = findDependencyRange(text, name);
-          if (!range) {
+          const offsets = findPythonDependencyOffsets(text, path.basename(uri.fsPath), name);
+          if (!offsets) {
             continue;
           }
+          const range = new vscode.Range(
+            offsetToPosition(text, offsets.start),
+            offsetToPosition(text, offsets.end)
+          );
           const target = risk.recommendedBump ? ` → ${risk.recommendedBump}` : "";
           const msg = `[${risk.tier}] ${name}@${risk.signals.pkg.version}${target}: ${risk.reasons[0] ?? risk.tier}`;
           const diag = new vscode.Diagnostic(
@@ -96,10 +104,14 @@ export class PackageJsonDiagnostics implements vscode.Disposable {
   }
 
   findRiskAt(document: vscode.TextDocument, range: vscode.Range): RiskResult | undefined {
-    if (!this.lastSummary || !document.fileName.endsWith("package.json")) {
+    if (!this.lastSummary || !isPythonManifest(document.fileName)) {
       return undefined;
     }
-    const name = findDependencyNameAtOffset(document.getText(), document.offsetAt(range.start));
+    const name = findPythonDependencyNameAtOffset(
+      document.getText(),
+      path.basename(document.fileName),
+      document.offsetAt(range.start)
+    );
     return name ? riskForName(this.lastSummary, name) : undefined;
   }
 
@@ -111,6 +123,11 @@ export class PackageJsonDiagnostics implements vscode.Disposable {
       d.dispose();
     }
   }
+}
+
+export function isPythonManifest(fileName: string): boolean {
+  const base = path.basename(fileName);
+  return base === "pyproject.toml" || /^requirements.*\.txt$/i.test(base);
 }
 
 function tierRank(tier: string): number {
@@ -126,23 +143,14 @@ function tierRank(tier: string): number {
   }
 }
 
-/** Locate "name": "range" inside dependency blocks. */
-export function findDependencyRange(text: string, packageName: string): vscode.Range | undefined {
-  const offsets = findDependencyOffsets(text, packageName);
-  if (!offsets) {
-    return undefined;
-  }
-  return new vscode.Range(offsetToPosition(text, offsets.start), offsetToPosition(text, offsets.end));
-}
-
 function riskForName(summary: ScanSummary, name: string): RiskResult | undefined {
   let best: RiskResult | undefined;
   for (const result of summary.results) {
     if (
       result.tier === "eol" ||
-      result.signals.pkg.ecosystem !== "npm" ||
-      result.signals.pkg.name !== name ||
-      !result.signals.pkg.direct
+      result.signals.pkg.ecosystem !== "pypi" ||
+      !result.signals.pkg.direct ||
+      !namesMatch(result.signals.pkg.name, name)
     ) {
       continue;
     }

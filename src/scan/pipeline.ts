@@ -16,16 +16,24 @@ import {
   type LockPackage,
   type LockfileKind,
 } from "../lockfile/npm";
-import { isQueryableNpmVersion } from "../util/semver";
 import { parsePnpmLockfile } from "../lockfile/pnpm";
 import { parseYarnLockfile } from "../lockfile/yarn";
 import { parseBunLockfile } from "../lockfile/bun";
+import {
+  parsePipfileLock,
+  parsePoetryLockfile,
+  parseRequirementsFile,
+  parseUvLockfile,
+  readPythonManifest,
+} from "../lockfile/python";
 import { OsvClient } from "../osv/client";
 import { EolClient } from "../eol/endoflife";
 import { NpmRegistry } from "../registry/npm";
+import { PypiRegistry } from "../registry/pypi";
 import { attachRegistrySignals, scorePackage, scoreRuntimeEol } from "../score/risk";
 import { mapPool } from "../util/http";
-import type { PackageRef, RiskResult, ScanSummary, RiskTier, VulnSummary } from "../types";
+import { isQueryableVersion, namesMatch } from "../util/version";
+import type { Ecosystem, PackageRef, RiskResult, ScanSummary, RiskTier, VulnSummary } from "../types";
 
 export type ProgressFn = (phase: string, detail?: string) => void;
 
@@ -33,6 +41,7 @@ export class ScanPipeline {
   readonly cache: RiskCache;
   private readonly osv: OsvClient;
   private readonly npm: NpmRegistry;
+  private readonly pypi: PypiRegistry;
   private readonly eol: EolClient;
 
   constructor(workspaceRoot: string) {
@@ -40,6 +49,7 @@ export class ScanPipeline {
     this.cache = new RiskCache(cachePath);
     this.osv = new OsvClient(this.cache);
     this.npm = new NpmRegistry(this.cache);
+    this.pypi = new PypiRegistry(this.cache);
     this.eol = new EolClient(this.cache);
   }
 
@@ -71,6 +81,7 @@ export class ScanPipeline {
     const manifests = manifestUris.slice(0, 200).map((uri) => uri.fsPath);
     const direct = new Set<string>();
     let enginesNode: string | undefined;
+    let requiresPython: string | undefined;
 
     for (const mf of manifests) {
       try {
@@ -83,14 +94,53 @@ export class ScanPipeline {
         errors.push(`Manifest ${mf}: ${String(e)}`);
       }
     }
+
+    const pythonManifests = await vscode.workspace.findFiles(
+      new vscode.RelativePattern(folder, "**/pyproject.toml"),
+      "{**/node_modules/**,**/.venv/**,**/venv/**,**/dist/**}",
+      51,
+      opts?.token
+    );
+    for (const uri of pythonManifests.slice(0, 50)) {
+      try {
+        const manifest = await readPythonManifest(uri.fsPath);
+        for (const name of manifest.direct) {
+          direct.add(name);
+        }
+        requiresPython = requiresPython ?? manifest.requiresPython;
+      } catch (e) {
+        errors.push(`Manifest ${uri.fsPath}: ${String(e)}`);
+      }
+    }
+
+    const requirementUris = await vscode.workspace.findFiles(
+      new vscode.RelativePattern(folder, "**/requirements*.txt"),
+      "{**/node_modules/**,**/.venv/**,**/venv/**}",
+      21,
+      opts?.token
+    );
+    for (const uri of requirementUris.slice(0, 20)) {
+      try {
+        const parsed = await parseRequirementsFile(uri.fsPath);
+        for (const name of parsed.direct) {
+          direct.add(name);
+        }
+      } catch (e) {
+        errors.push(`Manifest ${uri.fsPath}: ${String(e)}`);
+      }
+    }
+
     enginesNode = (await readPinnedNodeVersion(folder.uri.fsPath)) ?? enginesNode;
+    requiresPython = (await readPinnedPythonVersion(folder.uri.fsPath)) ?? requiresPython;
 
     onProgress("Scanning imports", `${manifests.length} package.json`);
     const imported = await collectImportedPackages(folder, opts?.token, (warning) =>
       errors.push(warning)
     );
 
-    const queryable = lockPackages.filter((lp) => isQueryableNpmVersion(lp.version));
+    const queryable = lockPackages.filter((lp) =>
+      isQueryableVersion(lp.version, lp.ecosystem ?? "npm")
+    );
     if (queryable.length < lockPackages.length) {
       errors.push(
         `Skipped ${lockPackages.length - queryable.length} non-registry lockfile ${
@@ -118,21 +168,35 @@ export class ScanPipeline {
     const results: RiskResult[] = [];
 
     // Unique package names for registry (direct + those with vulns + imported)
-    const registryNames = new Set<string>();
+    const registryKeys: PackageRef[] = [];
     for (const pkg of packages) {
-      const refs = batch.get(`${pkg.name}@${pkg.version}`) ?? [];
+      const refs = batch.get(`${pkg.ecosystem}:${pkg.name}@${pkg.version}`) ?? [];
       if (pkg.direct || pkg.imported || refs.length) {
-        registryNames.add(pkg.name);
+        registryKeys.push(pkg);
       }
     }
 
-    onProgress("Fetching npm metadata", `${registryNames.size} packages`);
-    const metaByName = new Map<string, Awaited<ReturnType<NpmRegistry["getMeta"]>>>();
-    await mapPool([...registryNames], 6, async (name) => {
+    onProgress("Fetching registry metadata", `${registryKeys.length} packages`);
+    const metaByKey = new Map<string, { latest?: string; lastPublish?: string; changelog: string }>();
+    await mapPool(uniqueByName(registryKeys), 6, async (pkg) => {
       try {
-        metaByName.set(name, await this.npm.getMeta(name, { force: opts?.force }));
+        if (pkg.ecosystem === "pypi") {
+          const meta = await this.pypi.getMeta(pkg.name, { force: opts?.force });
+          metaByKey.set(`${pkg.ecosystem}:${pkg.name}`, {
+            latest: meta?.latest,
+            lastPublish: meta?.lastPublish,
+            changelog: this.pypi.changelogUrl(pkg.name, meta),
+          });
+        } else {
+          const meta = await this.npm.getMeta(pkg.name, { force: opts?.force });
+          metaByKey.set(`${pkg.ecosystem}:${pkg.name}`, {
+            latest: meta?.latest,
+            lastPublish: meta?.lastPublish,
+            changelog: this.npm.changelogUrl(pkg.name, meta),
+          });
+        }
       } catch (e) {
-        errors.push(`npm ${name}: ${String(e)}`);
+        errors.push(`${pkg.ecosystem} ${pkg.name}: ${String(e)}`);
       }
     });
 
@@ -140,38 +204,39 @@ export class ScanPipeline {
       if (opts?.token?.isCancellationRequested) {
         return;
       }
-      const refs = batch.get(`${pkg.name}@${pkg.version}`) ?? [];
+      const refs = batch.get(`${pkg.ecosystem}:${pkg.name}@${pkg.version}`) ?? [];
       let vulns: VulnSummary[] = [];
       try {
-        vulns = refs.length ? await this.osv.hydrateVulns(pkg.name, refs) : [];
+        vulns = refs.length ? await this.osv.hydrateVulns(pkg.name, refs, pkg.ecosystem) : [];
       } catch (e) {
         errors.push(`OSV hydrate ${pkg.name}: ${String(e)}`);
       }
 
-      const meta = metaByName.get(pkg.name);
-      const signals = attachRegistrySignals(
-        { pkg, vulns },
-        meta?.latest,
-        meta?.lastPublish
-      );
+      const meta = metaByKey.get(`${pkg.ecosystem}:${pkg.name}`);
+      const signals = attachRegistrySignals({ pkg, vulns }, meta?.latest, meta?.lastPublish);
 
-      const scored = scorePackage(signals, cfg, this.npm.changelogUrl(pkg.name, meta));
+      const scored = scorePackage(signals, cfg, meta?.changelog);
       if (scored.tier !== "clear") {
         results.push(scored);
       }
     });
 
     onProgress("Checking runtime EOL");
-    try {
-      const eol = await this.eol.nodeRuntimeEol(enginesNode);
-      if (eol) {
-        const eolResult = scoreRuntimeEol(eol, cfg);
-        if (eolResult) {
-          results.push(eolResult);
+    for (const [label, task] of [
+      ["EOL node", () => this.eol.nodeRuntimeEol(enginesNode)],
+      ["EOL python", () => this.eol.pythonRuntimeEol(requiresPython)],
+    ] as const) {
+      try {
+        const eol = await task();
+        if (eol) {
+          const eolResult = scoreRuntimeEol(eol, cfg);
+          if (eolResult) {
+            results.push(eolResult);
+          }
         }
+      } catch (e) {
+        errors.push(`${label}: ${String(e)}`);
       }
-    } catch (e) {
-      errors.push(`EOL: ${String(e)}`);
     }
 
     await this.cache.flush();
@@ -215,7 +280,9 @@ export class ScanPipeline {
   private async loadLockPackages(root: string, errors: string[]): Promise<LockPackage[]> {
     const locks = await findLockfiles(root);
     if (!locks.length) {
-      errors.push("No lockfile found (package-lock.json, pnpm-lock.yaml, yarn.lock, or bun.lock).");
+      errors.push(
+        "No lockfile found (package-lock.json, pnpm-lock.yaml, yarn.lock, bun.lock, uv.lock, poetry.lock, Pipfile.lock, or pinned requirements.txt)."
+      );
       return [];
     }
     if (locks.length >= LOCKFILE_DISCOVERY_LIMIT) {
@@ -235,24 +302,21 @@ export class ScanPipeline {
       byKind.set(kind, list);
     }
 
-    const selectedKind: LockfileKind | undefined = byKind.has("npm")
-      ? "npm"
-      : byKind.has("pnpm")
-        ? "pnpm"
-        : byKind.has("yarn")
-          ? "yarn"
-          : byKind.has("bun")
-            ? "bun"
-            : undefined;
-
+    const jsKind = firstKind(byKind, ["npm", "pnpm", "yarn", "bun"]);
+    const pyKind = firstKind(byKind, ["uv", "poetry", "pipfile", "requirements"]);
     const kindsPresent = [...byKind.keys()].filter((kind) => kind !== "bun-binary");
-    if (kindsPresent.length > 1) {
+    if (kindsPresent.filter((kind) => ["npm", "pnpm", "yarn", "bun"].includes(kind)).length > 1) {
       errors.push(
-        `Multiple lockfile types found (${kindsPresent.join(", ")}); scanning by priority: npm, pnpm, Yarn, then Bun.`
+        `Multiple JavaScript lockfile types found; scanning by priority: npm, pnpm, Yarn, then Bun.`
+      );
+    }
+    if (kindsPresent.filter((kind) => ["uv", "poetry", "pipfile", "requirements"].includes(kind)).length > 1) {
+      errors.push(
+        `Multiple Python lockfile types found; scanning by priority: uv, Poetry, Pipfile, then pinned requirements.txt.`
       );
     }
 
-    if (!selectedKind) {
+    if (!jsKind && !pyKind) {
       if (byKind.has("bun-binary")) {
         errors.push(
           "Found bun.lockb (binary). Generate bun.lock with bun install on Bun 1.2+, or add an npm/pnpm/Yarn lockfile."
@@ -261,19 +325,24 @@ export class ScanPipeline {
       return [];
     }
 
-    const selected = byKind.get(selectedKind) ?? [];
-    if (selected.length > 1) {
-      errors.push(
-        `Scanning ${selected.length} ${selectedKind} lockfiles (${selected.map((lock) => path.relative(root, lock) || path.basename(lock)).join(", ")}).`
-      );
-    }
-
     const batches: LockPackage[][] = [];
-    for (const lock of selected) {
-      try {
-        batches.push(await parseLockfile(lock, selectedKind));
-      } catch (e) {
-        errors.push(`Lockfile parse ${path.relative(root, lock) || path.basename(lock)}: ${String(e)}`);
+    for (const kind of [jsKind, pyKind]) {
+      if (!kind) {
+        continue;
+      }
+      const selected = byKind.get(kind) ?? [];
+      if (selected.length > 1) {
+        errors.push(
+          `Scanning ${selected.length} ${kind} lockfiles (${selected.map((lock) => path.relative(root, lock) || path.basename(lock)).join(", ")}).`
+        );
+      }
+      for (const lock of selected) {
+        try {
+          const parsed = await parseLockfile(lock, kind, errors);
+          batches.push(parsed);
+        } catch (e) {
+          errors.push(`Lockfile parse ${path.relative(root, lock) || path.basename(lock)}: ${String(e)}`);
+        }
       }
     }
     return mergeLockPackages(batches);
@@ -287,16 +356,19 @@ export class ScanPipeline {
   ): PackageRef[] {
     const refs: PackageRef[] = [];
     for (const lp of lockPackages) {
+      const ecosystem: Ecosystem = lp.ecosystem ?? "npm";
       const isDirect =
-        direct.has(lp.name) && isHoistedOrWorkspaceInstall(lp.lockPath, lp.name);
-      const isImported = imported.has(lp.name);
+        ecosystem === "pypi"
+          ? hasName(direct, lp.name)
+          : direct.has(lp.name) && isHoistedOrWorkspaceInstall(lp.lockPath, lp.name);
+      const isImported = ecosystem === "pypi" ? hasName(imported, lp.name) : imported.has(lp.name);
       if (!cfg.scanTransitive && !isDirect && !isImported) {
         continue;
       }
       refs.push({
         name: lp.name,
         version: lp.version,
-        ecosystem: "npm",
+        ecosystem,
         direct: isDirect,
         imported: isImported,
         usage: isDirect ? "direct" : "transitive",
@@ -306,7 +378,11 @@ export class ScanPipeline {
   }
 }
 
-async function parseLockfile(lock: string, kind: LockfileKind): Promise<LockPackage[]> {
+async function parseLockfile(
+  lock: string,
+  kind: LockfileKind,
+  errors: string[]
+): Promise<LockPackage[]> {
   switch (kind) {
     case "npm":
       return parseNpmLockfile(lock);
@@ -316,13 +392,75 @@ async function parseLockfile(lock: string, kind: LockfileKind): Promise<LockPack
       return parseYarnLockfile(lock);
     case "bun":
       return parseBunLockfile(lock);
+    case "uv":
+      return parseUvLockfile(lock);
+    case "poetry":
+      return parsePoetryLockfile(lock);
+    case "pipfile":
+      return parsePipfileLock(lock);
+    case "requirements": {
+      const parsed = await parseRequirementsFile(lock);
+      if (parsed.unpinned) {
+        errors.push(
+          `${path.basename(lock)} has ${parsed.unpinned} unpinned ${
+            parsed.unpinned === 1 ? "requirement" : "requirements"
+          }; only == pins are scanned.`
+        );
+      }
+      return parsed.packages;
+    }
     default:
       return [];
   }
 }
 
+function firstKind(byKind: Map<LockfileKind, string[]>, order: LockfileKind[]): LockfileKind | undefined {
+  return order.find((kind) => byKind.has(kind));
+}
+
+function hasName(names: Set<string>, pkgName: string): boolean {
+  if (names.has(pkgName)) {
+    return true;
+  }
+  for (const name of names) {
+    if (namesMatch(name, pkgName)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function uniqueByName(packages: PackageRef[]): PackageRef[] {
+  const seen = new Set<string>();
+  const out: PackageRef[] = [];
+  for (const pkg of packages) {
+    const key = `${pkg.ecosystem}:${pkg.name}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    out.push(pkg);
+  }
+  return out;
+}
+
 function emptyTierCounts(): Record<RiskTier, number> {
   return { critical: 0, high: 0, stale: 0, eol: 0, clear: 0 };
+}
+
+async function readPinnedPythonVersion(root: string): Promise<string | undefined> {
+  for (const filename of [".python-version", "runtime.txt"]) {
+    try {
+      const value = (await fs.readFile(path.join(root, filename), "utf8")).trim().split(/\r?\n/)[0] ?? "";
+      const match = value.match(/^(?:python-)?(\d+\.\d+)(?:\.\d+)?$/i);
+      if (match) {
+        return match[1];
+      }
+    } catch {
+      // Optional runtime pin is absent.
+    }
+  }
+  return undefined;
 }
 
 async function readPinnedNodeVersion(root: string): Promise<string | undefined> {

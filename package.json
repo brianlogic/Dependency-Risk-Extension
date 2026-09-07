@@ -1,7 +1,7 @@
 {
   "name": "dependency-version-risk",
   "displayName": "Dependency Version Risk",
-  "description": "Live CVE, stale, and EOL risk for npm dependencies — sidebar tree, package.json diagnostics, and agent-assisted upgrades.",
+  "description": "Live CVE, stale, and EOL risk for npm and PyPI dependencies — sidebar tree, manifest diagnostics, and agent-assisted upgrades.",
   "version": "0.2.1",
   "publisher": "BT23",
   "engines": {
@@ -9,7 +9,7 @@
   },
   "license": "MIT",
   "icon": "media/icon.png",
-  "keywords": ["npm", "security", "cve", "dependencies", "osv", "cursor"], 
+  "keywords": ["npm", "python", "pypi", "pip", "security", "cve", "dependencies", "osv", "cursor"], 
   "repository": {
     "type": "git",
     "url": "https://github.com/brianlogic/Dependency-Risk-Extension.git"
@@ -25,6 +25,11 @@
     "workspaceContains:**/pnpm-lock.yaml",
     "workspaceContains:**/yarn.lock",
     "workspaceContains:**/bun.lock",
+    "workspaceContains:**/uv.lock",
+    "workspaceContains:**/poetry.lock",
+    "workspaceContains:**/Pipfile.lock",
+    "workspaceContains:**/requirements.txt",
+    "workspaceContains:**/pyproject.toml",
     "onView:depRisk.sidebar",
     "onView:depRisk.explorer",
     "onView:depRisk.overview",
@@ -146,7 +151,7 @@
         "depRisk.autoScanOnLockfileChange": {
           "type": "boolean",
           "default": true,
-          "description": "Re-scan when package-lock.json / pnpm-lock.yaml / yarn.lock / bun.lock changes."
+          "description": "Re-scan when a JavaScript or Python lockfile or manifest changes."
         },
         "depRisk.dailyRescanHours": {
           "type": "number",
@@ -164,7 +169,7 @@
           "type": "number",
           "default": 18,
           "minimum": 1,
-          "description": "Months since last npm publish before marking Stale (inactive maintainer)."
+          "description": "Months since last npm or PyPI publish before marking Stale (inactive maintainer)."
         },
         "depRisk.eolHorizonMonths": {
           "type": "number",

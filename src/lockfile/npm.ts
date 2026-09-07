@@ -6,6 +6,7 @@ export interface LockPackage {
   version: string;
   /** Dependency path key from lockfile (e.g. node_modules/lodash). */
   lockPath: string;
+  ecosystem?: import("../types").Ecosystem;
 }
 
 export interface ManifestDeps {
@@ -165,6 +166,9 @@ const LOCKFILE_NAMES = new Set([
   "yarn.lock",
   "bun.lock",
   "bun.lockb",
+  "uv.lock",
+  "poetry.lock",
+  "Pipfile.lock",
 ]);
 
 const SKIP_DIRS = new Set([
@@ -180,9 +184,24 @@ const SKIP_DIRS = new Set([
   ".dep-risk",
   ".yarn",
   "vendor",
+  ".venv",
+  "venv",
+  "__pycache__",
+  ".tox",
+  ".mypy_cache",
+  "site-packages",
 ]);
 
-export type LockfileKind = "npm" | "pnpm" | "yarn" | "bun" | "bun-binary";
+export type LockfileKind =
+  | "npm"
+  | "pnpm"
+  | "yarn"
+  | "bun"
+  | "bun-binary"
+  | "uv"
+  | "poetry"
+  | "pipfile"
+  | "requirements";
 
 export function lockfileKind(filePath: string): LockfileKind | undefined {
   const base = path.basename(filePath);
@@ -201,6 +220,18 @@ export function lockfileKind(filePath: string): LockfileKind | undefined {
   if (base === "bun.lockb") {
     return "bun-binary";
   }
+  if (base === "uv.lock") {
+    return "uv";
+  }
+  if (base === "poetry.lock") {
+    return "poetry";
+  }
+  if (base === "Pipfile.lock") {
+    return "pipfile";
+  }
+  if (/^requirements.*\.txt$/i.test(base)) {
+    return "requirements";
+  }
   return undefined;
 }
 
@@ -208,7 +239,7 @@ export function mergeLockPackages(batches: LockPackage[][]): LockPackage[] {
   const out = new Map<string, LockPackage>();
   for (const batch of batches) {
     for (const pkg of batch) {
-      const key = `${pkg.name}@${pkg.version}`;
+      const key = `${pkg.ecosystem ?? "npm"}:${pkg.name}@${pkg.version}`;
       const existing = out.get(key);
       if (!existing || lockPathDepth(pkg.lockPath) < lockPathDepth(existing.lockPath)) {
         out.set(key, pkg);
@@ -243,7 +274,7 @@ export async function findLockfiles(workspaceRoot: string): Promise<string[]> {
         await walk(path.join(dir, entry.name), depth + 1);
         continue;
       }
-      if (entry.isFile() && LOCKFILE_NAMES.has(entry.name)) {
+      if (entry.isFile() && lockfileKind(entry.name)) {
         found.push(path.join(dir, entry.name));
       }
     }

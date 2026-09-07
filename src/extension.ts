@@ -3,6 +3,7 @@ import { getConfig } from "./config";
 import { askAgentFix, copyAgentPrompt } from "./commands/askAgentFix";
 import { PackageJsonCodeActions } from "./diagnostics/PackageJsonCodeActions";
 import { PackageJsonDiagnostics } from "./diagnostics/PackageJsonDiagnostics";
+import { PythonDiagnostics } from "./diagnostics/PythonDiagnostics";
 import { ScanPipeline } from "./scan/pipeline";
 import { DepRiskDecorationProvider } from "./tree/decorations";
 import { DepRiskTreeProvider } from "./tree/DepRiskTreeProvider";
@@ -21,6 +22,7 @@ let tree: DepRiskTreeProvider;
 let overview: OverviewView;
 let decorations: DepRiskDecorationProvider;
 let diagnostics: PackageJsonDiagnostics;
+let pythonDiagnostics: PythonDiagnostics;
 let lockWatcher: vscode.FileSystemWatcher | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
@@ -38,6 +40,7 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   diagnostics = new PackageJsonDiagnostics();
+  pythonDiagnostics = new PythonDiagnostics();
 
   statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
   statusBar.command = "depRisk.show";
@@ -47,13 +50,18 @@ export function activate(context: vscode.ExtensionContext): void {
 
   context.subscriptions.push(
     diagnostics,
+    pythonDiagnostics,
     statusBar,
     vscode.languages.registerCodeActionsProvider(
       [
         { language: "json", pattern: "**/package.json" },
         { language: "jsonc", pattern: "**/package.json" },
+        { language: "pip-requirements", pattern: "**/requirements*.txt" },
+        { pattern: "**/requirements*.txt" },
+        { language: "toml", pattern: "**/pyproject.toml" },
+        { pattern: "**/pyproject.toml" },
       ],
-      new PackageJsonCodeActions(diagnostics),
+      new PackageJsonCodeActions([diagnostics, pythonDiagnostics]),
       { providedCodeActionKinds: [vscode.CodeActionKind.QuickFix] }
     ),
     vscode.commands.registerCommand("depRisk.show", async () => {
@@ -152,7 +160,7 @@ async function bindWorkspace(): Promise<void> {
   lockWatcher = vscode.workspace.createFileSystemWatcher(
     new vscode.RelativePattern(
       folder,
-      "{package.json,**/package.json,**/package-lock.json,**/npm-shrinkwrap.json,**/pnpm-lock.yaml,**/yarn.lock,**/bun.lock,.nvmrc,.node-version}"
+      "{package.json,**/package.json,**/package-lock.json,**/npm-shrinkwrap.json,**/pnpm-lock.yaml,**/yarn.lock,**/bun.lock,**/uv.lock,**/poetry.lock,**/Pipfile.lock,**/requirements*.txt,**/pyproject.toml,.nvmrc,.node-version,.python-version,runtime.txt}"
     )
   );
   const schedule = debounce(() => {
@@ -242,7 +250,10 @@ function runScan(folder: vscode.WorkspaceFolder, force: boolean): Thenable<void>
         tree.setSummary(summary);
         overview.setSummary(summary);
         decorations.refresh();
-        await diagnostics.apply(summary, folder);
+        await Promise.all([
+          diagnostics.apply(summary, folder),
+          pythonDiagnostics.apply(summary, folder),
+        ]);
         updateStatus(summary);
         if (summary.errors.length) {
           console.warn("[depRisk] scan errors", summary.errors);

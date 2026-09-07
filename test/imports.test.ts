@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { extractImportedPythonPackages } from "../src/graph/pyImports";
 import { extractImportedPackageNames } from "../src/graph/specifiers";
 
 describe("import extraction", () => {
@@ -21,4 +22,16 @@ describe("import extraction", () => {
     `);
     assert.deepEqual(names, []);
   });
+
+  it("collects top-level Python imports", () => {
+    const names = extractImportedPythonPackages(`
+import requests
+from flask import Flask
+import ruamel.yaml as yaml
+from .local import helper
+# import commented
+`);
+    assert.deepEqual(names, ["requests", "flask", "ruamel"]);
+  });
 });
+

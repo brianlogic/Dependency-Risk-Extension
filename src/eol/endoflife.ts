@@ -32,24 +32,47 @@ export function parseDeclaredNodeMajor(enginesNode?: string): string | undefined
   return m?.[1];
 }
 
+export function parseDeclaredPythonRelease(requiresPython?: string): string | undefined {
+  if (!requiresPython) {
+    return undefined;
+  }
+  const trimmed = requiresPython.trim();
+  if (trimmed.includes("||") || /[<>]/.test(trimmed)) {
+    return undefined;
+  }
+  const match = trimmed.match(/^(?:python-)?(?:[=v^~]\s*)?(\d+\.\d+)(?:\.\d+)?$/i);
+  return match?.[1];
+}
+
 export class EolClient {
   constructor(private readonly cache: RiskCache) {}
+
+  async pythonRuntimeEol(requiresPython?: string): Promise<RuntimeEolInfo | undefined> {
+    const release = parseDeclaredPythonRelease(requiresPython);
+    if (!release) {
+      return undefined;
+    }
+    return this.runtimeEol("python", release);
+  }
 
   async nodeRuntimeEol(enginesNode?: string): Promise<RuntimeEolInfo | undefined> {
     const major = parseDeclaredNodeMajor(enginesNode);
     if (!major) {
       return undefined;
     }
+    return this.runtimeEol("nodejs", major);
+  }
 
-    const cycles = await this.getProductCycles("nodejs");
+  private async runtimeEol(product: string, declared: string): Promise<RuntimeEolInfo | undefined> {
+    const cycles = await this.getProductCycles(product);
     const cycle =
-      cycles.find((c) => String(c.name) === major) ??
-      cycles.find((c) => String(c.name).startsWith(`${major}.`));
+      cycles.find((c) => String(c.name) === declared) ??
+      cycles.find((c) => String(c.name).startsWith(`${declared}.`));
 
     if (!cycle) {
       return {
-        product: "nodejs",
-        current: major,
+        product,
+        current: declared,
         alreadyEol: false,
       };
     }
@@ -64,7 +87,7 @@ export class EolClient {
     }
 
     return {
-      product: "nodejs",
+      product,
       current: String(cycle.name),
       eolDate,
       monthsUntilEol: monthsToEol,

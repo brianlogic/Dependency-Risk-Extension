@@ -1,9 +1,5 @@
-import {
-  isMajorBump,
-  majorsBehind,
-  monthsBetween,
-  pickSafeBumpForAdvisories,
-} from "../util/semver";
+import { monthsBetween } from "../util/semver";
+import { isMajorBump, majorsBehind, pickSafeBumpForAdvisories } from "../util/version";
 import type { DepRiskConfig } from "../config";
 import type { PackageSignals, RiskResult, VulnSummary } from "../types";
 
@@ -81,9 +77,10 @@ export function scorePackage(
   const advisoryUrls = vulns.map(advisoryUrl);
   const recommendedBump = pickSafeBumpForAdvisories(
     pkg.version,
-    vulns.map((v) => v.fixedVersions)
+    vulns.map((v) => v.fixedVersions),
+    pkg.ecosystem
   );
-  const major = recommendedBump ? isMajorBump(pkg.version, recommendedBump) : false;
+  const major = recommendedBump ? isMajorBump(pkg.version, recommendedBump, pkg.ecosystem) : false;
 
   if (vulns.length > 0) {
     const criticalHits = orderedVulns.filter(isCriticalVuln);
@@ -137,7 +134,7 @@ export function scorePackage(
     signals.monthsSincePublish >= cfg.maintainerInactiveMonths
   ) {
     staleReasons.push(
-      `No npm publish in ~${Math.floor(signals.monthsSincePublish)} months`
+      `No ${pkg.ecosystem === "pypi" ? "PyPI" : "npm"} publish in ~${Math.floor(signals.monthsSincePublish)} months`
     );
   }
   if (staleReasons.length) {
@@ -146,7 +143,7 @@ export function scorePackage(
       reasons: staleReasons,
       recommendedBump: signals.latestVersion,
       isMajorBump: signals.latestVersion
-        ? isMajorBump(pkg.version, signals.latestVersion)
+        ? isMajorBump(pkg.version, signals.latestVersion, pkg.ecosystem)
         : false,
       changelogUrl,
       advisoryIds: [],
@@ -180,7 +177,7 @@ export function scoreRuntimeEol(
     pkg: {
       name: eol.product,
       version: eol.current,
-      ecosystem: "npm",
+      ecosystem: eol.product === "python" ? "pypi" : "npm",
       direct: true,
       imported: true,
       usage: "direct",
@@ -214,7 +211,7 @@ export function attachRegistrySignals(
   const next = { ...signals };
   if (latest) {
     next.latestVersion = latest;
-    next.majorsBehind = majorsBehind(signals.pkg.version, latest);
+    next.majorsBehind = majorsBehind(signals.pkg.version, latest, signals.pkg.ecosystem);
   }
   if (lastPublish) {
     next.lastPublish = lastPublish;

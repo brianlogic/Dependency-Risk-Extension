@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { parseDeclaredNodeMajor } from "../src/eol/endoflife";
+import { parseDeclaredNodeMajor, parseDeclaredPythonRelease } from "../src/eol/endoflife";
 import { parseCvssScore, toVulnSummary } from "../src/osv/client";
 
 describe("data-source normalization", () => {
@@ -25,6 +25,38 @@ describe("data-source normalization", () => {
   it("rejects compatibility ranges that do not identify the runtime", () => {
     assert.equal(parseDeclaredNodeMajor(">=18"), undefined);
     assert.equal(parseDeclaredNodeMajor("18 || 20"), undefined);
+  });
+
+  it("accepts unambiguous Python runtime declarations", () => {
+    assert.equal(parseDeclaredPythonRelease("3.12"), "3.12");
+    assert.equal(parseDeclaredPythonRelease("3.12.1"), "3.12");
+    assert.equal(parseDeclaredPythonRelease("python-3.12.1"), "3.12");
+  });
+
+  it("rejects Python compatibility ranges that do not identify the runtime", () => {
+    assert.equal(parseDeclaredPythonRelease(">=3.10"), undefined);
+    assert.equal(parseDeclaredPythonRelease(">=3.10,<3.13"), undefined);
+  });
+
+  it("extracts PyPI fixes from the matching affected block", () => {
+    const summary = toVulnSummary(
+      {
+        id: "PYSEC-test",
+        affected: [
+          {
+            package: { ecosystem: "npm", name: "example" },
+            ranges: [{ type: "SEMVER", events: [{ fixed: "88.0.0" }] }],
+          },
+          {
+            package: { ecosystem: "PyPI", name: "example" },
+            ranges: [{ type: "ECOSYSTEM", events: [{ fixed: "2.31.1" }] }],
+          },
+        ],
+      },
+      "example",
+      "pypi"
+    );
+    assert.deepEqual(summary.fixedVersions, ["2.31.1"]);
   });
 
   it("extracts fixes only from the matching npm affected block", () => {

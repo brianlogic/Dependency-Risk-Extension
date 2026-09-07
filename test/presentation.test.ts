@@ -45,6 +45,24 @@ describe("tree presentation", () => {
 
   it("shows usage and CVSS at a glance", () => {
     assert.equal(packageGlance(risk()), "imported · CVSS 7.5");
+    assert.equal(
+      packageGlance(
+        risk({
+          signals: {
+            pkg: {
+              name: "requests",
+              version: "2.31.0",
+              ecosystem: "pypi",
+              direct: true,
+              imported: true,
+              usage: "direct",
+            },
+            vulns: [],
+          },
+        })
+      ),
+      "PyPI · imported"
+    );
   });
 
   it("picks reason icons from the text", () => {

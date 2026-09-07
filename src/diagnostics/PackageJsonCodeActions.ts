@@ -1,9 +1,13 @@
 import * as vscode from "vscode";
-import type { PackageJsonDiagnostics } from "./PackageJsonDiagnostics";
 import type { RiskResult } from "../types";
 
+export interface RiskLookup {
+  getRiskForDiagnostic(diagnostic: vscode.Diagnostic): RiskResult | undefined;
+  findRiskAt(document: vscode.TextDocument, range: vscode.Range): RiskResult | undefined;
+}
+
 export class PackageJsonCodeActions implements vscode.CodeActionProvider {
-  constructor(private readonly diagnostics: PackageJsonDiagnostics) {}
+  constructor(private readonly lookups: RiskLookup[]) {}
 
   provideCodeActions(
     document: vscode.TextDocument,
@@ -17,13 +21,17 @@ export class PackageJsonCodeActions implements vscode.CodeActionProvider {
       if (diagnostic.source !== "Dep Risk") {
         continue;
       }
-      const risk = this.diagnostics.getRiskForDiagnostic(diagnostic);
+      const risk = this.lookups
+        .map((lookup) => lookup.getRiskForDiagnostic(diagnostic))
+        .find((hit) => hit !== undefined);
       if (risk) {
         pushActions(actions, seen, risk, diagnostic);
       }
     }
 
-    const atCursor = this.diagnostics.findRiskAt(document, range);
+    const atCursor = this.lookups
+      .map((lookup) => lookup.findRiskAt(document, range))
+      .find((hit) => hit !== undefined);
     if (atCursor) {
       pushActions(actions, seen, atCursor);
     }

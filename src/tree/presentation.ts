@@ -55,7 +55,10 @@ export function usageLabel(risk: RiskResult): string {
 }
 
 export function packageGlance(risk: RiskResult): string {
-  const parts = [usageLabel(risk)];
+  const parts = [
+    risk.signals.pkg.ecosystem === "pypi" ? "PyPI" : undefined,
+    usageLabel(risk),
+  ].filter((part): part is string => !!part);
   const top = risk.signals.vulns[0];
   if (top?.cvssScore != null) {
     parts.push(`CVSS ${top.cvssScore}`);

@@ -16,6 +16,10 @@ interface CacheFile {
     string,
     { latest: string; modified?: string; json: string; cachedAt: number }
   >;
+  pypiMeta: Record<
+    string,
+    { latest: string; modified?: string; json: string; cachedAt: number }
+  >;
   eol: Record<string, { json: string; cachedAt: number }>;
 }
 
@@ -24,6 +28,7 @@ const EMPTY: CacheFile = {
   packageHits: {},
   vulns: {},
   npmMeta: {},
+  pypiMeta: {},
   eol: {},
 };
 
@@ -45,7 +50,7 @@ export class RiskCache {
       const raw = await fs.readFile(this.cachePath, "utf8");
       const parsed = JSON.parse(raw) as CacheFile;
       if (parsed?.version === 1) {
-        this.data = parsed;
+        this.data = { ...EMPTY, ...parsed, pypiMeta: parsed.pypiMeta ?? {} };
       }
     } catch {
       this.data = structuredClone(EMPTY);
@@ -110,9 +115,12 @@ export class RiskCache {
   getPackageHit(
     name: string,
     version: string,
-    maxAgeMs = 24 * 60 * 60 * 1000
+    maxAgeMs = 24 * 60 * 60 * 1000,
+    ecosystem = "npm"
   ): { vulnIds: string[]; modifiedById: Record<string, string> } | undefined {
-    const row = this.data.packageHits[`${name}@${version}`];
+    const row =
+      this.data.packageHits[`${ecosystem}:${name}@${version}`] ??
+      (ecosystem === "npm" ? this.data.packageHits[`${name}@${version}`] : undefined);
     if (!row || Date.now() - row.cachedAt > maxAgeMs) {
       return undefined;
     }
@@ -123,9 +131,10 @@ export class RiskCache {
     name: string,
     version: string,
     vulnIds: string[],
-    modifiedById: Record<string, string>
+    modifiedById: Record<string, string>,
+    ecosystem = "npm"
   ): void {
-    this.data.packageHits[`${name}@${version}`] = {
+    this.data.packageHits[`${ecosystem}:${name}@${version}`] = {
       vulnIds,
       modifiedById,
       cachedAt: Date.now(),
@@ -167,6 +176,28 @@ export class RiskCache {
     } catch {
       return undefined;
     }
+  }
+
+  getPypiMeta(name: string, maxAgeMs: number): { latest: string; modified?: string; raw: unknown } | undefined {
+    const row = this.data.pypiMeta[name];
+    if (!row || Date.now() - row.cachedAt > maxAgeMs) {
+      return undefined;
+    }
+    try {
+      return { latest: row.latest, modified: row.modified, raw: JSON.parse(row.json) };
+    } catch {
+      return undefined;
+    }
+  }
+
+  setPypiMeta(name: string, latest: string, modified: string | undefined, raw: unknown): void {
+    this.data.pypiMeta[name] = {
+      latest,
+      modified,
+      json: JSON.stringify(raw),
+      cachedAt: Date.now(),
+    };
+    this.scheduleSave();
   }
 
   setNpmMeta(name: string, latest: string, modified: string | undefined, raw: unknown): void {

@@ -1,8 +1,8 @@
 import { CVSS20, CVSS30, CVSS31, CVSS40 } from "@pandatix/js-cvss";
 import { fetchJson, mapPool } from "../util/http";
-import { fixedVersionsFromOsvEvents } from "../util/semver";
+import { nextPatchAfter } from "../util/version";
 import type { RiskCache } from "../cache/store";
-import type { PackageRef, VulnSummary } from "../types";
+import { osvEcosystem, type Ecosystem, type PackageRef, type VulnSummary } from "../types";
 
 const OSV_BATCH = "https://api.osv.dev/v1/querybatch";
 const OSV_VULN = "https://api.osv.dev/v1/vulns";
@@ -151,11 +151,12 @@ export function detectPublicExploit(vuln: Pick<OsvVuln, "details" | "references"
   );
 }
 
-function fixedForPackage(vuln: OsvVuln, packageName: string): string[] {
+function fixedForPackage(vuln: OsvVuln, packageName: string, ecosystem: Ecosystem): string[] {
+  const expected = osvEcosystem(ecosystem).toLowerCase();
   const fixed: string[] = [];
   for (const a of vuln.affected ?? []) {
     if (
-      a.package?.ecosystem?.toLowerCase() !== "npm" ||
+      a.package?.ecosystem?.toLowerCase() !== expected ||
       a.package.name?.toLowerCase() !== packageName.toLowerCase()
     ) {
       continue;
@@ -164,13 +165,28 @@ function fixedForPackage(vuln: OsvVuln, packageName: string): string[] {
       if (range.type !== "SEMVER" && range.type !== "ECOSYSTEM") {
         continue;
       }
-      fixed.push(...fixedVersionsFromOsvEvents(range.events ?? []));
+      for (const event of range.events ?? []) {
+        if (event.fixed) {
+          fixed.push(event.fixed);
+          continue;
+        }
+        if (event.last_affected) {
+          const next = nextPatchAfter(event.last_affected, ecosystem);
+          if (next) {
+            fixed.push(next);
+          }
+        }
+      }
     }
   }
   return [...new Set(fixed)];
 }
 
-export function toVulnSummary(raw: OsvVuln, packageName: string): VulnSummary {
+export function toVulnSummary(
+  raw: OsvVuln,
+  packageName: string,
+  ecosystem: Ecosystem = "npm"
+): VulnSummary {
   const cvssScore = parseCvssScore(raw);
   const dbSev = raw.database_specific?.severity;
   return {
@@ -181,7 +197,7 @@ export function toVulnSummary(raw: OsvVuln, packageName: string): VulnSummary {
     severity: severityFromScore(cvssScore, dbSev),
     cvssScore,
     hasPublicExploit: detectPublicExploit(raw),
-    fixedVersions: fixedForPackage(raw, packageName),
+    fixedVersions: fixedForPackage(raw, packageName, ecosystem),
     references: (raw.references ?? []).map((r) => r.url).filter((u): u is string => !!u),
     modified: raw.modified,
   };
@@ -208,9 +224,9 @@ export class OsvClient {
     const toQuery: PackageRef[] = [];
 
     for (const pkg of packages) {
-      const key = `${pkg.name}@${pkg.version}`;
+      const key = `${pkg.ecosystem}:${pkg.name}@${pkg.version}`;
       if (!opts?.force) {
-        const hit = this.cache.getPackageHit(pkg.name, pkg.version);
+        const hit = this.cache.getPackageHit(pkg.name, pkg.version, undefined, pkg.ecosystem);
         if (hit) {
           result.set(
             key,
@@ -236,9 +252,10 @@ export class OsvClient {
           pkg.name,
           pkg.version,
           vulns.map((v) => v.id),
-          modifiedById
+          modifiedById,
+          pkg.ecosystem
         );
-        result.set(`${pkg.name}@${pkg.version}`, vulns);
+        result.set(`${pkg.ecosystem}:${pkg.name}@${pkg.version}`, vulns);
       });
     }
 
@@ -250,7 +267,7 @@ export class OsvClient {
     let active: Array<{ index: number; query: OsvQuery }> = packages.map((p, index) => ({
       index,
       query: {
-        package: { name: p.name, ecosystem: "npm" },
+        package: { name: p.name, ecosystem: osvEcosystem(p.ecosystem) },
         version: p.version,
       },
     }));
@@ -291,13 +308,17 @@ export class OsvClient {
     return accumulated;
   }
 
-  async hydrateVulns(packageName: string, refs: OsvBatchVulnRef[]): Promise<VulnSummary[]> {
+  async hydrateVulns(
+    packageName: string,
+    refs: OsvBatchVulnRef[],
+    ecosystem: Ecosystem = "npm"
+  ): Promise<VulnSummary[]> {
     const unique = dedupeVulnRefs(refs);
     const summaries = await mapPool(unique, 8, async (ref): Promise<VulnSummary | undefined> => {
       const cached = this.cache.getVuln(ref.id, ref.modified);
       if (cached) {
         const raw = cached as OsvVuln;
-        return raw.withdrawn ? undefined : toVulnSummary(raw, packageName);
+        return raw.withdrawn ? undefined : toVulnSummary(raw, packageName, ecosystem);
       }
 
       let request = this.inFlightVulns.get(ref.id);
@@ -315,7 +336,7 @@ export class OsvClient {
       } finally {
         this.inFlightVulns.delete(ref.id);
       }
-      return raw.withdrawn ? undefined : toVulnSummary(raw, packageName);
+      return raw.withdrawn ? undefined : toVulnSummary(raw, packageName, ecosystem);
     });
     return summaries.filter((summary): summary is VulnSummary => summary !== undefined);
   }

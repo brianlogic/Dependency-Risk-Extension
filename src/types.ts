@@ -1,4 +1,8 @@
-export type Ecosystem = "npm";
+export type Ecosystem = "npm" | "pypi";
+
+export function osvEcosystem(ecosystem: Ecosystem): string {
+  return ecosystem === "pypi" ? "PyPI" : "npm";
+}
 
 export type RiskTier = "critical" | "high" | "stale" | "eol" | "clear";
 
@@ -8,7 +12,7 @@ export interface PackageRef {
   name: string;
   version: string;
   ecosystem: Ecosystem;
-  /** True when listed in package.json dependencies/devDependencies/optional/peer. */
+  /** True when listed in package.json, pyproject.toml, or a requirements file. */
   direct: boolean;
   /** True when workspace source appears to import/require this package. */
   imported: boolean;
@@ -44,7 +48,7 @@ export interface PackageSignals {
   vulns: VulnSummary[];
   latestVersion?: string;
   majorsBehind?: number;
-  /** ISO date of last npm publish (time.modified). */
+  /** ISO date of last registry publish. */
   lastPublish?: string;
   monthsSincePublish?: number;
   runtimeEol?: RuntimeEolInfo;

@@ -7,14 +7,20 @@ export function buildAgentPrompt(risk: RiskResult): string {
     risk.advisoryIds.join(", ") ||
     (risk.tier === "stale" ? "stale dependency risk" : "known dependency risk");
 
+  const ecosystem = pkg.ecosystem === "pypi" ? "PyPI" : "npm";
+  const lockfiles =
+    pkg.ecosystem === "pypi"
+      ? "uv.lock / poetry.lock / Pipfile.lock / requirements.txt"
+      : "package-lock.json / pnpm-lock.yaml / yarn.lock / bun.lock";
+
   const lines = risk.recommendedBump
     ? [
-        `Upgrade npm package \`${pkg.name}\` from \`${pkg.version}\` → \`${risk.recommendedBump}\` to resolve ${cves}.`,
-        `Update the lockfile (package-lock.json / pnpm-lock.yaml / yarn.lock / bun.lock), run the test suite, and fix any breakage.`,
+        `Upgrade ${ecosystem} package \`${pkg.name}\` from \`${pkg.version}\` → \`${risk.recommendedBump}\` to resolve ${cves}.`,
+        `Update the lockfile (${lockfiles}), run the test suite, and fix any breakage.`,
         `Do not widen unrelated dependency bumps.`,
       ]
     : [
-        `Investigate ${cves} affecting npm package \`${pkg.name}@${pkg.version}\`. No complete fixed version is published in the advisory data, so do not invent or blindly apply a target version.`,
+        `Investigate ${cves} affecting ${ecosystem} package \`${pkg.name}@${pkg.version}\`. No complete fixed version is published in the advisory data, so do not invent or blindly apply a target version.`,
         `Determine whether a mitigation, override, replacement package, or upstream update is appropriate. Run the test suite after any change and keep unrelated dependency versions unchanged.`,
       ];
 
@@ -82,7 +88,7 @@ export async function askAgentFix(risk: RiskResult): Promise<void> {
   if (risk.tier === "eol") {
     const open = "Open EOL page";
     const choice = await vscode.window.showWarningMessage(
-      risk.reasons[0] ?? "Runtime is EOL-adjacent. Upgrade the language/runtime, not a single npm package.",
+      risk.reasons[0] ?? "Runtime is EOL-adjacent. Upgrade the language/runtime, not a single package.",
       open
     );
     if (choice === open && risk.changelogUrl) {
