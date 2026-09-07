@@ -8,6 +8,7 @@ import { ScanPipeline } from "./scan/pipeline";
 import { DepRiskDecorationProvider } from "./tree/decorations";
 import { DepRiskTreeProvider } from "./tree/DepRiskTreeProvider";
 import { OverviewView } from "./tree/OverviewView";
+import { RiskDetailView } from "./tree/RiskDetailView";
 import { headline } from "./tree/presentation";
 import type { RiskResult, ScanSummary } from "./types";
 
@@ -89,11 +90,22 @@ export function activate(context: vscode.ExtensionContext): void {
         await copyAgentPrompt(risk);
       }
     }),
-    vscode.commands.registerCommand("depRisk.openAdvisory", async (item?: { risk: RiskResult }) => {
+    vscode.commands.registerCommand("depRisk.showRisk", async (item?: { risk: RiskResult }) => {
       const risk = item?.risk ?? (await pickRisk());
-      const url = risk?.advisoryUrls[0] ?? risk?.changelogUrl;
+      if (risk) {
+        RiskDetailView.show(risk);
+      }
+    }),
+    vscode.commands.registerCommand("depRisk.openAdvisory", async (item?: { risk?: RiskResult; url?: string }) => {
+      const url = item?.url ?? item?.risk?.advisoryUrls[0] ?? item?.risk?.changelogUrl;
       if (url) {
         await vscode.env.openExternal(vscode.Uri.parse(url));
+        return;
+      }
+      const risk = item?.risk ?? (await pickRisk());
+      const fallback = risk?.advisoryUrls[0] ?? risk?.changelogUrl;
+      if (fallback) {
+        await vscode.env.openExternal(vscode.Uri.parse(fallback));
         return;
       }
       void vscode.window.showInformationMessage("No advisory or changelog URL is available for this item.");

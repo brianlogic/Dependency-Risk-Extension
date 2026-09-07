@@ -1,17 +1,8 @@
+import { advisoryUrl } from "../osv/urls";
 import { monthsBetween } from "../util/semver";
 import { isMajorBump, majorsBehind, pickSafeBumpForAdvisories } from "../util/version";
 import type { DepRiskConfig } from "../config";
 import type { PackageSignals, RiskResult, VulnSummary } from "../types";
-
-function advisoryUrl(v: VulnSummary): string {
-  const ghsa =
-    v.aliases.find((a) => a.startsWith("GHSA-")) ??
-    (v.id.startsWith("GHSA-") ? v.id : undefined);
-  if (ghsa) {
-    return `https://github.com/advisories/${ghsa}`;
-  }
-  return `https://osv.dev/vulnerability/${v.id}`;
-}
 
 function isCriticalVuln(v: VulnSummary): boolean {
   return v.hasPublicExploit || (v.cvssScore ?? 0) >= 9 || v.severity === "CRITICAL";

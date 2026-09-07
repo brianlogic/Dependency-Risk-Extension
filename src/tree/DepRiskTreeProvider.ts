@@ -1,9 +1,10 @@
 import * as vscode from "vscode";
+import { advisoryUrl } from "../osv/urls";
 import { riskResourceUri, themeIcon } from "./decorations";
 import { headline, packageGlance, packageTooltip, reasonIcon, usageLabel, worstTier } from "./presentation";
-import { TIER_LABEL, TIER_ORDER, type RiskResult, type RiskTier, type ScanSummary } from "../types";
+import { TIER_LABEL, TIER_ORDER, type RiskResult, type RiskTier, type ScanSummary, type VulnSummary } from "../types";
 
-export type DepRiskTreeItem = SummaryItem | TierItem | PackageItem | ReasonItem | MessageItem;
+export type DepRiskTreeItem = SummaryItem | TierItem | PackageItem | AdvisoryItem | ReasonItem | MessageItem;
 
 export class MessageItem extends vscode.TreeItem {
   constructor(message: string, icon: string, tooltip?: string, tier?: RiskTier) {
@@ -72,12 +73,37 @@ export class PackageItem extends vscode.TreeItem {
     );
     this.resourceUri = riskResourceUri("pkg", risk.tier, `${pkg.name}@${pkg.version}`);
     this.command = {
-      command: "depRisk.openAdvisory",
-      title: "Open Advisory",
+      command: "depRisk.showRisk",
+      title: "View Risk Details",
       arguments: [this],
     };
     this.accessibilityInformation = {
       label: `${TIER_LABEL[risk.tier]} ${pkg.name} ${pkg.version}, ${usageLabel(risk)}`,
+    };
+  }
+}
+
+export class AdvisoryItem extends vscode.TreeItem {
+  constructor(readonly risk: RiskResult, readonly vuln: VulnSummary) {
+    super(vuln.id, vscode.TreeItemCollapsibleState.None);
+    const aliases = vuln.aliases.filter((alias) => alias !== vuln.id).slice(0, 3);
+    this.description = [aliases.join(" · "), vuln.summary].filter(Boolean).join(" — ").slice(0, 120);
+    this.contextValue = "depRisk.advisory";
+    this.iconPath = themeIcon(vuln.hasPublicExploit ? "flame" : "link", risk.tier);
+    this.tooltip = new vscode.MarkdownString(
+      [
+        `**${vuln.id}**${aliases.length ? ` · ${aliases.join(", ")}` : ""}`,
+        vuln.summary,
+        vuln.cvssScore != null ? `CVSS ${vuln.cvssScore}` : vuln.severity,
+        "Click to open the full advisory.",
+      ]
+        .filter(Boolean)
+        .join("\n\n")
+    );
+    this.command = {
+      command: "depRisk.openAdvisory",
+      title: "Read Advisory",
+      arguments: [{ risk, url: advisoryUrl(vuln) }],
     };
   }
 }
@@ -149,9 +175,12 @@ export class DepRiskTreeProvider implements vscode.TreeDataProvider<DepRiskTreeI
     }
 
     if (element instanceof PackageItem) {
-      const items: DepRiskTreeItem[] = element.risk.reasons.map(
-        (r) => new ReasonItem(r, element.risk.tier)
+      const items: DepRiskTreeItem[] = element.risk.signals.vulns.map(
+        (vuln) => new AdvisoryItem(element.risk, vuln)
       );
+      for (const reason of element.risk.reasons) {
+        items.push(new ReasonItem(reason, element.risk.tier));
+      }
       if (element.risk.recommendedBump) {
         items.push(
           new ReasonItem(

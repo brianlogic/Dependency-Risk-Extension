@@ -21,10 +21,7 @@ export class OverviewView implements vscode.WebviewViewProvider {
       if (!risk) {
         return;
       }
-      void vscode.commands.executeCommand(
-        risk.advisoryUrls[0] ? "depRisk.openAdvisory" : "depRisk.openChangelog",
-        { risk }
-      );
+      void vscode.commands.executeCommand("depRisk.showRisk", { risk });
     });
     this.render();
   }

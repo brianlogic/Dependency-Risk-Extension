@@ -102,6 +102,11 @@
         "icon": "$(sparkle)"
       },
       {
+        "command": "depRisk.showRisk",
+        "title": "Dep Risk: View Risk Details",
+        "icon": "$(preview)"
+      },
+      {
         "command": "depRisk.openAdvisory",
         "title": "Dep Risk: Open Advisory"
       },
@@ -129,8 +134,13 @@
           "group": "inline@1"
         },
         {
-          "command": "depRisk.openAdvisory",
+          "command": "depRisk.showRisk",
           "when": "(view == depRisk.sidebar || view == depRisk.explorer) && viewItem =~ /depRisk\\.package/",
+          "group": "inline@2"
+        },
+        {
+          "command": "depRisk.openAdvisory",
+          "when": "(view == depRisk.sidebar || view == depRisk.explorer) && viewItem =~ /depRisk\\.(package|advisory)/",
           "group": "1_nav@1"
         },
         {

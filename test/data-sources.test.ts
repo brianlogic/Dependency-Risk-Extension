@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { parseDeclaredNodeMajor, parseDeclaredPythonRelease } from "../src/eol/endoflife";
 import { parseCvssScore, toVulnSummary } from "../src/osv/client";
+import { advisoryUrl, excerptDetails, readingLinks } from "../src/osv/urls";
 
 describe("data-source normalization", () => {
   it("calculates a numerical score from an OSV CVSS 3.1 vector", () => {
@@ -109,6 +110,30 @@ describe("data-source normalization", () => {
       "example"
     );
     assert.equal(summary.hasPublicExploit, false);
+  });
+
+  it("prefers the GitHub advisory page and lists clickable reading links", () => {
+    const vuln = {
+      id: "GHSA-xxxx-yyyy-zzzz",
+      aliases: ["CVE-2024-1234", "GHSA-xxxx-yyyy-zzzz"],
+      summary: "Example",
+      hasPublicExploit: false,
+      fixedVersions: [],
+      references: ["https://nvd.nist.gov/vuln/detail/CVE-2024-1234", "https://github.com/advisories/GHSA-xxxx-yyyy-zzzz"],
+    };
+    assert.equal(advisoryUrl(vuln), "https://github.com/advisories/GHSA-xxxx-yyyy-zzzz");
+    const labels = readingLinks(vuln).map((link) => link.label);
+    assert.ok(labels.includes("GitHub Advisory"));
+    assert.ok(labels.includes("CVE-2024-1234"));
+    assert.ok(labels.includes("NVD"));
+  });
+
+  it("turns OSV markdown details into a short readable excerpt", () => {
+    const excerpt = excerptDetails("## Impact\n\nA [remote](https://example.com) issue.\n\n```\ncode\n```\nMore text.");
+    assert.ok(excerpt);
+    assert.match(excerpt, /Impact/);
+    assert.match(excerpt, /remote issue/);
+    assert.equal(excerpt.includes("```"), false);
   });
 
   it("flags exploit-db references as a public exploit", () => {

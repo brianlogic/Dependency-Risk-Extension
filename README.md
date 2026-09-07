@@ -24,13 +24,14 @@ npm run verify
 
 Then **Run Extension** from the Debug view (F5). That opens a second **Extension Development Host** window — the sidebar, status bar, and commands only exist there.
 
-In that window: Command Palette → **Dep Risk: Show Sidebar**, or look for **Dep Risk** at the bottom of Explorer. The **Overview** pane shows a color bar and the top critical/high packages; **Live Risks** is the expandable tree (colored badges, CVSS/usage on each row). On a squiggle in `package.json`, `pyproject.toml`, or `requirements.txt`, use the lightbulb for **Ask Agent to Upgrade + Fix** or **Open Advisory**.
+In that window: Command Palette → **Dep Risk: Show Sidebar**, or look for **Dep Risk** at the bottom of Explorer. The **Overview** pane shows a color bar and the top critical/high packages; **Live Risks** is the expandable tree (colored badges, CVSS/usage on each row). Click a package for a detail tab that lists each OSV/GHSA issue with a **Read full advisory** link; expand the row and click an advisory id to open it. On a squiggle in `package.json`, `pyproject.toml`, or `requirements.txt`, use the lightbulb for **Ask Agent to Upgrade + Fix** or **Open Advisory**.
 
 ## Commands
 
 | Command | Action |
 |--------|--------|
 | `Dep Risk: Refresh` | Force re-query OSV + refresh sidebar |
+| `Dep Risk: View Risk Details` | Lists advisories for a package (click through to GHSA/OSV) |
 | `Ask Agent to Upgrade + Fix` | Pre-loaded upgrade prompt (safe target + tests) |
 | `Open Advisory` / `Open Changelog` | External links |
 
