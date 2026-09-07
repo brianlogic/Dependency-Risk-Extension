@@ -11,6 +11,9 @@ const options = {
   external: ["vscode"],
   format: "cjs",
   platform: "node",
+  // Prefer ESM entry points so UMD packages like jsonc-parser are fully inlined.
+  // The UMD build keeps runtime require("./impl/format") calls that fail from dist/.
+  mainFields: ["module", "main"],
   target: "node18",
   sourcemap: !production,
   minify: production,

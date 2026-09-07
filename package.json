@@ -25,6 +25,7 @@
     "workspaceContains:**/pnpm-lock.yaml",
     "workspaceContains:**/yarn.lock",
     "onView:depRisk.sidebar",
+    "onView:depRisk.explorer",
     "onCommand:depRisk.refresh",
     "onCommand:depRisk.show"
   ],
@@ -44,10 +45,29 @@
         {
           "id": "depRisk.sidebar",
           "name": "Live Risks",
-          "contextualTitle": "Dependency Risk"
+          "contextualTitle": "Dependency Risk",
+          "type": "tree"
+        }
+      ],
+      "explorer": [
+        {
+          "id": "depRisk.explorer",
+          "name": "Dep Risk",
+          "contextualTitle": "Dependency Risk",
+          "type": "tree"
         }
       ]
     },
+    "viewsWelcome": [
+      {
+        "view": "depRisk.sidebar",
+        "contents": "Open a folder with a lockfile, then run **Dep Risk: Refresh**."
+      },
+      {
+        "view": "depRisk.explorer",
+        "contents": "Open a folder with a lockfile, then run **Dep Risk: Refresh**."
+      }
+    ],
     "commands": [
       {
         "command": "depRisk.show",
@@ -81,29 +101,29 @@
       "view/title": [
         {
           "command": "depRisk.refresh",
-          "when": "view == depRisk.sidebar",
+          "when": "view == depRisk.sidebar || view == depRisk.explorer",
           "group": "navigation"
         }
       ],
       "view/item/context": [
         {
           "command": "depRisk.askAgentFix",
-          "when": "view == depRisk.sidebar && viewItem =~ /depRisk\\.package/",
+          "when": "(view == depRisk.sidebar || view == depRisk.explorer) && viewItem =~ /depRisk\\.package/",
           "group": "inline@1"
         },
         {
           "command": "depRisk.openAdvisory",
-          "when": "view == depRisk.sidebar && viewItem =~ /depRisk\\.package/",
+          "when": "(view == depRisk.sidebar || view == depRisk.explorer) && viewItem =~ /depRisk\\.package/",
           "group": "1_nav@1"
         },
         {
           "command": "depRisk.openChangelog",
-          "when": "view == depRisk.sidebar && viewItem =~ /depRisk\\.package/",
+          "when": "(view == depRisk.sidebar || view == depRisk.explorer) && viewItem =~ /depRisk\\.package/",
           "group": "1_nav@2"
         },
         {
           "command": "depRisk.copyAgentPrompt",
-          "when": "view == depRisk.sidebar && viewItem =~ /depRisk\\.package/",
+          "when": "(view == depRisk.sidebar || view == depRisk.explorer) && viewItem =~ /depRisk\\.package/",
           "group": "1_nav@3"
         }
       ]

@@ -17,8 +17,16 @@ let tree: DepRiskTreeProvider;
 let diagnostics: PackageJsonDiagnostics;
 let lockWatcher: vscode.FileSystemWatcher | undefined;
 
-export async function activate(context: vscode.ExtensionContext): Promise<void> {
+export function activate(context: vscode.ExtensionContext): void {
+  // Register tree views before any await so Cursor/VS Code never shows
+  // "There is no data provider registered that can provide view data."
   tree = new DepRiskTreeProvider();
+  const treeViewOptions = { treeDataProvider: tree, showCollapseAll: true };
+  context.subscriptions.push(
+    vscode.window.createTreeView("depRisk.sidebar", treeViewOptions),
+    vscode.window.createTreeView("depRisk.explorer", treeViewOptions)
+  );
+
   diagnostics = new PackageJsonDiagnostics();
 
   statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
@@ -30,9 +38,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(
     diagnostics,
     statusBar,
-    vscode.window.registerTreeDataProvider("depRisk.sidebar", tree),
     vscode.commands.registerCommand("depRisk.show", async () => {
-      await vscode.commands.executeCommand("depRisk.sidebar.focus");
+      await focusDepRiskView();
       const folder = requireFolder(false);
       if (folder && !tree.getSummary()) {
         await runScan(folder, false);
@@ -82,7 +89,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     })
   );
 
-  await bindWorkspace();
+  void bindWorkspace().catch((error) => {
+    console.error("[depRisk] startup failed", error);
+    void vscode.window.showErrorMessage(`Dep Risk failed to start: ${String(error)}`);
+  });
 }
 
 export function deactivate(): void {
@@ -286,6 +296,17 @@ async function pickRisk() {
     { placeHolder: "Select a package" }
   );
   return picked?.risk;
+}
+
+async function focusDepRiskView(): Promise<void> {
+  for (const command of ["depRisk.sidebar.focus", "depRisk.explorer.focus"]) {
+    try {
+      await vscode.commands.executeCommand(command);
+      return;
+    } catch {
+      // Cursor may only surface the Explorer-hosted view.
+    }
+  }
 }
 
 function debounce(fn: () => void, ms: number): () => void {
