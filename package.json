@@ -24,8 +24,10 @@
     "workspaceContains:**/npm-shrinkwrap.json",
     "workspaceContains:**/pnpm-lock.yaml",
     "workspaceContains:**/yarn.lock",
+    "workspaceContains:**/bun.lock",
     "onView:depRisk.sidebar",
     "onView:depRisk.explorer",
+    "onView:depRisk.overview",
     "onCommand:depRisk.refresh",
     "onCommand:depRisk.show"
   ],
@@ -43,6 +45,12 @@
     "views": {
       "depRisk": [
         {
+          "id": "depRisk.overview",
+          "name": "Overview",
+          "contextualTitle": "Risk mix",
+          "type": "webview"
+        },
+        {
           "id": "depRisk.sidebar",
           "name": "Live Risks",
           "contextualTitle": "Dependency Risk",
@@ -59,6 +67,10 @@
       ]
     },
     "viewsWelcome": [
+      {
+        "view": "depRisk.overview",
+        "contents": "Open a folder with a lockfile, then run **Dep Risk: Refresh**."
+      },
       {
         "view": "depRisk.sidebar",
         "contents": "Open a folder with a lockfile, then run **Dep Risk: Refresh**."
@@ -134,7 +146,7 @@
         "depRisk.autoScanOnLockfileChange": {
           "type": "boolean",
           "default": true,
-          "description": "Re-scan when package-lock.json / pnpm-lock.yaml / yarn.lock changes."
+          "description": "Re-scan when package-lock.json / pnpm-lock.yaml / yarn.lock / bun.lock changes."
         },
         "depRisk.dailyRescanHours": {
           "type": "number",

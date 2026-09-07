@@ -11,7 +11,7 @@ Live dependency risk in the editor: known CVEs (via [OSV.dev](https://osv.dev)),
 - **Used vs transitive**: import/require scan elevates high-severity issues on imported packages to Critical
 - **Safe bump**: computes the minimum target that clears every advisory with a published fix; never substitutes blind `latest` for an unfixed advisory
 - **Major bump gate**: modal + changelog link before firing the agent prompt
-- **Lockfiles**: `package-lock.json`, `npm-shrinkwrap.json`, `pnpm-lock.yaml`, `yarn.lock` (classic)
+- **Lockfiles**: `package-lock.json`, `npm-shrinkwrap.json`, `pnpm-lock.yaml`, `yarn.lock` (classic and Berry), `bun.lock`, including nested workspace lockfiles
 - **EOL**: [endoflife.date v1](https://endoflife.date/docs/api/v1/) for an explicitly pinned Node version (`.nvmrc`, `.node-version`, or an unambiguous `engines.node`)
 - **Resilience**: transient API retries, bounded concurrency, OSV response validation, incomplete-scan warnings, and queued lockfile rescans
 
@@ -22,7 +22,9 @@ npm install
 npm run verify
 ```
 
-Then **Run Extension** from the Debug view (F5).
+Then **Run Extension** from the Debug view (F5). That opens a second **Extension Development Host** window — the sidebar, status bar, and commands only exist there.
+
+In that window: Command Palette → **Dep Risk: Show Sidebar**, or look for **Dep Risk** at the bottom of Explorer. The **Overview** pane shows a color bar and the top critical/high packages; **Live Risks** is the expandable tree (colored badges, CVSS/usage on each row). On a squiggle in `package.json`, use the lightbulb for **Ask Agent to Upgrade + Fix** or **Open Advisory**.
 
 ## Commands
 

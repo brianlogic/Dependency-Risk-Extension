@@ -1,9 +1,14 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, it } from "node:test";
-import { isHoistedOrWorkspaceInstall, parseNpmLockfile } from "../src/lockfile/npm";
+import { parseBunLockfile } from "../src/lockfile/bun";
+import {
+  findLockfiles,
+  isHoistedOrWorkspaceInstall,
+  parseNpmLockfile,
+} from "../src/lockfile/npm";
 import { parseYarnLockfile } from "../src/lockfile/yarn";
 
 const temporaryDirectories: string[] = [];
@@ -90,15 +95,83 @@ describe("npm lockfile parsing", () => {
 });
 
 describe("Yarn lockfile parsing", () => {
-  it("reports Yarn Berry instead of returning an empty inventory", async () => {
+  it("parses Yarn Berry resolved versions and skips workspace locators", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "dep-risk-yarn-"));
     temporaryDirectories.push(directory);
     const filename = path.join(directory, "yarn.lock");
-    await writeFile(filename, "__metadata:\n  version: 8\n", "utf8");
-
-    await assert.rejects(
-      parseYarnLockfile(filename),
-      /Yarn Berry \(v2\+\) lockfiles are not supported/
+    await writeFile(
+      filename,
+      [
+        "__metadata:",
+        "  version: 8",
+        "",
+        '"lodash@npm:^4.17.21":',
+        "  version: 4.17.21",
+        "  resolution: \"lodash@npm:4.17.21\"",
+        "",
+        '"@scope/pkg@npm:^1.0.0, @scope/pkg@npm:^1.2.0":',
+        "  version: 1.2.3",
+        "",
+        '"app@workspace:.":',
+        "  version: 0.0.0-use.local",
+        "",
+      ].join("\n"),
+      "utf8"
     );
+
+    const packages = await parseYarnLockfile(filename);
+    assert.deepEqual(
+      packages.map((pkg) => `${pkg.name}@${pkg.version}`).sort(),
+      ["@scope/pkg@1.2.3", "lodash@4.17.21"]
+    );
+  });
+});
+
+describe("bun.lock parsing", () => {
+  it("reads registry tuples and skips workspace locators", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "dep-risk-bun-"));
+    temporaryDirectories.push(directory);
+    const filename = path.join(directory, "bun.lock");
+    await writeFile(
+      filename,
+      `{
+        "lockfileVersion": 1,
+        "packages": {
+          "lodash": ["lodash@4.17.21", "", {}, "sha512-test"],
+          "@scope/pkg": ["@scope/pkg@1.2.3", "", {}, "sha512-test"],
+          "local": ["local@workspace:packages/local"]
+        }
+      }`,
+      "utf8"
+    );
+
+    const packages = await parseBunLockfile(filename);
+    assert.deepEqual(
+      packages.map((pkg) => `${pkg.name}@${pkg.version}`).sort(),
+      ["@scope/pkg@1.2.3", "lodash@4.17.21"]
+    );
+  });
+
+  it("rejects binary bun.lockb", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "dep-risk-lockb-"));
+    temporaryDirectories.push(directory);
+    const filename = path.join(directory, "bun.lockb");
+    await writeFile(filename, "\0binary", "utf8");
+    await assert.rejects(parseBunLockfile(filename), /bun\.lockb is not supported/);
+  });
+});
+
+describe("lockfile discovery", () => {
+  it("finds nested lockfiles and skips node_modules", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "dep-risk-discover-"));
+    temporaryDirectories.push(directory);
+    await writeFile(path.join(directory, "package-lock.json"), "{}", "utf8");
+    await mkdir(path.join(directory, "apps", "web"), { recursive: true });
+    await writeFile(path.join(directory, "apps", "web", "yarn.lock"), "lodash@^4.0.0:\n  version \"4.17.21\"\n", "utf8");
+    await mkdir(path.join(directory, "node_modules", "foo"), { recursive: true });
+    await writeFile(path.join(directory, "node_modules", "foo", "package-lock.json"), "{}", "utf8");
+
+    const found = (await findLockfiles(directory)).map((file) => path.relative(directory, file)).sort();
+    assert.deepEqual(found, ["apps/web/yarn.lock", "package-lock.json"]);
   });
 });

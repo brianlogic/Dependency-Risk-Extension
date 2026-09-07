@@ -5,16 +5,21 @@ import { getConfig, type DepRiskConfig } from "../config";
 import { RiskCache } from "../cache/store";
 import { collectImportedPackages } from "../graph/imports";
 import {
+  LOCKFILE_DISCOVERY_LIMIT,
   directDependencyNames,
   findLockfiles,
   isHoistedOrWorkspaceInstall,
+  lockfileKind,
+  mergeLockPackages,
   parseNpmLockfile,
   readPackageManifest,
   type LockPackage,
+  type LockfileKind,
 } from "../lockfile/npm";
 import { isQueryableNpmVersion } from "../util/semver";
 import { parsePnpmLockfile } from "../lockfile/pnpm";
 import { parseYarnLockfile } from "../lockfile/yarn";
+import { parseBunLockfile } from "../lockfile/bun";
 import { OsvClient } from "../osv/client";
 import { EolClient } from "../eol/endoflife";
 import { NpmRegistry } from "../registry/npm";
@@ -210,34 +215,68 @@ export class ScanPipeline {
   private async loadLockPackages(root: string, errors: string[]): Promise<LockPackage[]> {
     const locks = await findLockfiles(root);
     if (!locks.length) {
-      errors.push("No lockfile found (package-lock.json, pnpm-lock.yaml, or yarn.lock).");
+      errors.push("No lockfile found (package-lock.json, pnpm-lock.yaml, yarn.lock, or bun.lock).");
       return [];
     }
-    if (locks.length > 1) {
+    if (locks.length >= LOCKFILE_DISCOVERY_LIMIT) {
       errors.push(
-        `Multiple lockfiles found (${locks.map((lock) => path.basename(lock)).join(", ")}); scanning by priority: npm, pnpm, then Yarn.`
+        `Lockfile discovery reached its ${LOCKFILE_DISCOVERY_LIMIT}-file limit; some nested lockfiles may be missing.`
       );
     }
 
-    // Prefer npm lock, then pnpm, then yarn
-    const npmLock = locks.find((l) => /package-lock\.json$|npm-shrinkwrap\.json$/.test(l));
-    const pnpmLock = locks.find((l) => l.endsWith("pnpm-lock.yaml"));
-    const yarnLock = locks.find((l) => l.endsWith("yarn.lock"));
-
-    try {
-      if (npmLock) {
-        return await parseNpmLockfile(npmLock);
+    const byKind = new Map<LockfileKind, string[]>();
+    for (const lock of locks) {
+      const kind = lockfileKind(lock);
+      if (!kind) {
+        continue;
       }
-      if (pnpmLock) {
-        return await parsePnpmLockfile(pnpmLock);
-      }
-      if (yarnLock) {
-        return await parseYarnLockfile(yarnLock);
-      }
-    } catch (e) {
-      errors.push(`Lockfile parse: ${String(e)}`);
+      const list = byKind.get(kind) ?? [];
+      list.push(lock);
+      byKind.set(kind, list);
     }
-    return [];
+
+    const selectedKind: LockfileKind | undefined = byKind.has("npm")
+      ? "npm"
+      : byKind.has("pnpm")
+        ? "pnpm"
+        : byKind.has("yarn")
+          ? "yarn"
+          : byKind.has("bun")
+            ? "bun"
+            : undefined;
+
+    const kindsPresent = [...byKind.keys()].filter((kind) => kind !== "bun-binary");
+    if (kindsPresent.length > 1) {
+      errors.push(
+        `Multiple lockfile types found (${kindsPresent.join(", ")}); scanning by priority: npm, pnpm, Yarn, then Bun.`
+      );
+    }
+
+    if (!selectedKind) {
+      if (byKind.has("bun-binary")) {
+        errors.push(
+          "Found bun.lockb (binary). Generate bun.lock with bun install on Bun 1.2+, or add an npm/pnpm/Yarn lockfile."
+        );
+      }
+      return [];
+    }
+
+    const selected = byKind.get(selectedKind) ?? [];
+    if (selected.length > 1) {
+      errors.push(
+        `Scanning ${selected.length} ${selectedKind} lockfiles (${selected.map((lock) => path.relative(root, lock) || path.basename(lock)).join(", ")}).`
+      );
+    }
+
+    const batches: LockPackage[][] = [];
+    for (const lock of selected) {
+      try {
+        batches.push(await parseLockfile(lock, selectedKind));
+      } catch (e) {
+        errors.push(`Lockfile parse ${path.relative(root, lock) || path.basename(lock)}: ${String(e)}`);
+      }
+    }
+    return mergeLockPackages(batches);
   }
 
   private toPackageRefs(
@@ -264,6 +303,21 @@ export class ScanPipeline {
       });
     }
     return refs;
+  }
+}
+
+async function parseLockfile(lock: string, kind: LockfileKind): Promise<LockPackage[]> {
+  switch (kind) {
+    case "npm":
+      return parseNpmLockfile(lock);
+    case "pnpm":
+      return parsePnpmLockfile(lock);
+    case "yarn":
+      return parseYarnLockfile(lock);
+    case "bun":
+      return parseBunLockfile(lock);
+    default:
+      return [];
   }
 }
 

@@ -1,5 +1,5 @@
-import { findNodeAtLocation, parseTree } from "jsonc-parser";
 import * as vscode from "vscode";
+import { findDependencyNameAtOffset, findDependencyOffsets } from "./packageJsonRanges";
 import type { RiskResult, ScanSummary } from "../types";
 
 const SEVERITY: Record<string, vscode.DiagnosticSeverity> = {
@@ -18,6 +18,7 @@ export class PackageJsonDiagnostics implements vscode.Disposable {
   private lastSummary: ScanSummary | undefined;
   private lastFolder: vscode.WorkspaceFolder | undefined;
   private reapplyTimer: NodeJS.Timeout | undefined;
+  private readonly riskByDiagnostic = new WeakMap<vscode.Diagnostic, RiskResult>();
 
   constructor() {
     this.collection = vscode.languages.createDiagnosticCollection("depRisk");
@@ -83,6 +84,7 @@ export class PackageJsonDiagnostics implements vscode.Disposable {
           );
           diag.source = "Dep Risk";
           diag.code = risk.advisoryIds[0] ?? risk.tier;
+          this.riskByDiagnostic.set(diag, risk);
           diagnostics.push(diag);
         }
         this.collection.set(uri, diagnostics);
@@ -90,6 +92,18 @@ export class PackageJsonDiagnostics implements vscode.Disposable {
         // skip
       }
     }
+  }
+
+  getRiskForDiagnostic(diagnostic: vscode.Diagnostic): RiskResult | undefined {
+    return this.riskByDiagnostic.get(diagnostic);
+  }
+
+  findRiskAt(document: vscode.TextDocument, range: vscode.Range): RiskResult | undefined {
+    if (!this.lastSummary || !document.fileName.endsWith("package.json")) {
+      return undefined;
+    }
+    const name = findDependencyNameAtOffset(document.getText(), document.offsetAt(range.start));
+    return name ? riskForName(this.lastSummary, name) : undefined;
   }
 
   dispose(): void {
@@ -117,27 +131,24 @@ function tierRank(tier: string): number {
 
 /** Locate "name": "range" inside dependency blocks. */
 export function findDependencyRange(text: string, packageName: string): vscode.Range | undefined {
-  const root = parseTree(text);
-  if (!root) {
+  const offsets = findDependencyOffsets(text, packageName);
+  if (!offsets) {
     return undefined;
   }
+  return new vscode.Range(offsetToPosition(text, offsets.start), offsetToPosition(text, offsets.end));
+}
 
-  for (const section of [
-    "dependencies",
-    "devDependencies",
-    "optionalDependencies",
-    "peerDependencies",
-  ]) {
-    const valueNode = findNodeAtLocation(root, [section, packageName]);
-    const propertyNode = valueNode?.parent;
-    if (propertyNode) {
-      return new vscode.Range(
-        offsetToPosition(text, propertyNode.offset),
-        offsetToPosition(text, propertyNode.offset + propertyNode.length)
-      );
+function riskForName(summary: ScanSummary, name: string): RiskResult | undefined {
+  let best: RiskResult | undefined;
+  for (const result of summary.results) {
+    if (result.tier === "eol" || result.signals.pkg.name !== name || !result.signals.pkg.direct) {
+      continue;
+    }
+    if (!best || tierRank(result.tier) < tierRank(best.tier)) {
+      best = result;
     }
   }
-  return undefined;
+  return best;
 }
 
 function offsetToPosition(text: string, offset: number): vscode.Position {

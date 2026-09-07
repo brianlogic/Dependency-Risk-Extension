@@ -1,10 +1,14 @@
 import * as vscode from "vscode";
 import { getConfig } from "./config";
 import { askAgentFix, copyAgentPrompt } from "./commands/askAgentFix";
+import { PackageJsonCodeActions } from "./diagnostics/PackageJsonCodeActions";
 import { PackageJsonDiagnostics } from "./diagnostics/PackageJsonDiagnostics";
 import { ScanPipeline } from "./scan/pipeline";
-import { DepRiskTreeProvider, PackageItem } from "./tree/DepRiskTreeProvider";
-import type { ScanSummary } from "./types";
+import { DepRiskDecorationProvider } from "./tree/decorations";
+import { DepRiskTreeProvider } from "./tree/DepRiskTreeProvider";
+import { OverviewView } from "./tree/OverviewView";
+import { headline } from "./tree/presentation";
+import type { RiskResult, ScanSummary } from "./types";
 
 let pipeline: ScanPipeline | undefined;
 let statusBar: vscode.StatusBarItem;
@@ -14,6 +18,8 @@ let pendingScan: { folder: vscode.WorkspaceFolder; force: boolean } | undefined;
 let scanCancellation: vscode.CancellationTokenSource | undefined;
 let activeFolder: vscode.WorkspaceFolder | undefined;
 let tree: DepRiskTreeProvider;
+let overview: OverviewView;
+let decorations: DepRiskDecorationProvider;
 let diagnostics: PackageJsonDiagnostics;
 let lockWatcher: vscode.FileSystemWatcher | undefined;
 
@@ -21,10 +27,14 @@ export function activate(context: vscode.ExtensionContext): void {
   // Register tree views before any await so Cursor/VS Code never shows
   // "There is no data provider registered that can provide view data."
   tree = new DepRiskTreeProvider();
+  overview = new OverviewView();
+  decorations = new DepRiskDecorationProvider();
   const treeViewOptions = { treeDataProvider: tree, showCollapseAll: true };
   context.subscriptions.push(
     vscode.window.createTreeView("depRisk.sidebar", treeViewOptions),
-    vscode.window.createTreeView("depRisk.explorer", treeViewOptions)
+    vscode.window.createTreeView("depRisk.explorer", treeViewOptions),
+    vscode.window.registerWebviewViewProvider(OverviewView.viewType, overview),
+    vscode.window.registerFileDecorationProvider(decorations)
   );
 
   diagnostics = new PackageJsonDiagnostics();
@@ -38,6 +48,14 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     diagnostics,
     statusBar,
+    vscode.languages.registerCodeActionsProvider(
+      [
+        { language: "json", pattern: "**/package.json" },
+        { language: "jsonc", pattern: "**/package.json" },
+      ],
+      new PackageJsonCodeActions(diagnostics),
+      { providedCodeActionKinds: [vscode.CodeActionKind.QuickFix] }
+    ),
     vscode.commands.registerCommand("depRisk.show", async () => {
       await focusDepRiskView();
       const folder = requireFolder(false);
@@ -51,19 +69,19 @@ export function activate(context: vscode.ExtensionContext): void {
         return runScan(folder, true);
       }
     }),
-    vscode.commands.registerCommand("depRisk.askAgentFix", async (item?: PackageItem) => {
+    vscode.commands.registerCommand("depRisk.askAgentFix", async (item?: { risk: RiskResult }) => {
       const risk = item?.risk ?? (await pickRisk());
       if (risk) {
         await askAgentFix(risk);
       }
     }),
-    vscode.commands.registerCommand("depRisk.copyAgentPrompt", async (item?: PackageItem) => {
+    vscode.commands.registerCommand("depRisk.copyAgentPrompt", async (item?: { risk: RiskResult }) => {
       const risk = item?.risk ?? (await pickRisk());
       if (risk) {
         await copyAgentPrompt(risk);
       }
     }),
-    vscode.commands.registerCommand("depRisk.openAdvisory", async (item?: PackageItem) => {
+    vscode.commands.registerCommand("depRisk.openAdvisory", async (item?: { risk: RiskResult }) => {
       const risk = item?.risk ?? (await pickRisk());
       const url = risk?.advisoryUrls[0] ?? risk?.changelogUrl;
       if (url) {
@@ -72,7 +90,7 @@ export function activate(context: vscode.ExtensionContext): void {
       }
       void vscode.window.showInformationMessage("No advisory or changelog URL is available for this item.");
     }),
-    vscode.commands.registerCommand("depRisk.openChangelog", async (item?: PackageItem) => {
+    vscode.commands.registerCommand("depRisk.openChangelog", async (item?: { risk: RiskResult }) => {
       const risk = item?.risk ?? (await pickRisk());
       if (risk?.changelogUrl) {
         await vscode.env.openExternal(vscode.Uri.parse(risk.changelogUrl));
@@ -119,6 +137,8 @@ async function bindWorkspace(): Promise<void> {
       dailyTimer = undefined;
     }
     tree.setSummary(undefined);
+    overview.setSummary(undefined);
+    decorations.refresh();
     statusBar.text = "$(shield) Dep Risk";
     statusBar.tooltip = "Open a folder with a lockfile to scan";
     return;
@@ -132,7 +152,7 @@ async function bindWorkspace(): Promise<void> {
   lockWatcher = vscode.workspace.createFileSystemWatcher(
     new vscode.RelativePattern(
       folder,
-      "{package.json,**/package.json,package-lock.json,npm-shrinkwrap.json,pnpm-lock.yaml,yarn.lock,.nvmrc,.node-version}"
+      "{package.json,**/package.json,**/package-lock.json,**/npm-shrinkwrap.json,**/pnpm-lock.yaml,**/yarn.lock,**/bun.lock,.nvmrc,.node-version}"
     )
   );
   const schedule = debounce(() => {
@@ -153,7 +173,7 @@ function requireFolder(showWarning = true): vscode.WorkspaceFolder | undefined {
   if (!folder) {
     if (showWarning) {
       void vscode.window.showWarningMessage(
-        "Dep Risk needs a workspace folder. Open a project that has package-lock.json (or use the sample fixture)."
+        "Dep Risk needs a workspace folder. Open a project that has a lockfile (or use the sample fixture)."
       );
     }
     return undefined;
@@ -220,6 +240,8 @@ function runScan(folder: vscode.WorkspaceFolder, force: boolean): Thenable<void>
           return;
         }
         tree.setSummary(summary);
+        overview.setSummary(summary);
+        decorations.refresh();
         await diagnostics.apply(summary, folder);
         updateStatus(summary);
         if (summary.errors.length) {
@@ -250,27 +272,24 @@ function runScan(folder: vscode.WorkspaceFolder, force: boolean): Thenable<void>
 }
 
 function updateStatus(summary: ScanSummary): void {
-  const c = summary.byTier.critical;
-  const h = summary.byTier.high;
-  const s = summary.byTier.stale;
-  const e = summary.byTier.eol;
   const parts: string[] = [];
-  if (c) {
-    parts.push(`${c} crit`);
+  if (summary.byTier.critical) {
+    parts.push(`$(flame)${summary.byTier.critical}`);
   }
-  if (h) {
-    parts.push(`${h} high`);
+  if (summary.byTier.high) {
+    parts.push(`$(warning)${summary.byTier.high}`);
   }
-  if (s) {
-    parts.push(`${s} stale`);
+  if (summary.byTier.stale) {
+    parts.push(`$(history)${summary.byTier.stale}`);
   }
-  if (e) {
-    parts.push(`${e} eol`);
+  if (summary.byTier.eol) {
+    parts.push(`$(calendar)${summary.byTier.eol}`);
   }
   const icon = summary.errors.length ? "$(warning)" : "$(shield)";
-  const result = parts.length ? parts.join(", ") : summary.errors.length ? "incomplete" : "clear";
-  statusBar.text = `${icon} Dep Risk: ${result}`;
+  const result = parts.length ? parts.join(" ") : summary.errors.length ? "incomplete" : "$(pass) clear";
+  statusBar.text = `${icon} Dep Risk ${result}`;
   statusBar.tooltip = [
+    headline(summary),
     `Scanned ${summary.packageCount} packages at ${new Date(summary.scannedAt).toLocaleString()}`,
     summary.errors.length
       ? `${summary.errors.length} source error(s); results may be incomplete`

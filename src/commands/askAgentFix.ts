@@ -10,7 +10,7 @@ export function buildAgentPrompt(risk: RiskResult): string {
   const lines = risk.recommendedBump
     ? [
         `Upgrade npm package \`${pkg.name}\` from \`${pkg.version}\` → \`${risk.recommendedBump}\` to resolve ${cves}.`,
-        `Update the lockfile (package-lock.json / pnpm-lock.yaml / yarn.lock), run the test suite, and fix any breakage.`,
+        `Update the lockfile (package-lock.json / pnpm-lock.yaml / yarn.lock / bun.lock), run the test suite, and fix any breakage.`,
         `Do not widen unrelated dependency bumps.`,
       ]
     : [

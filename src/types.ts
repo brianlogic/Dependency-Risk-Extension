@@ -86,9 +86,9 @@ export const TIER_LABEL: Record<RiskTier, string> = {
 };
 
 export const TIER_ICON: Record<RiskTier, string> = {
-  critical: "error",
+  critical: "flame",
   high: "warning",
   stale: "history",
   eol: "calendar",
-  clear: "check",
+  clear: "pass",
 };

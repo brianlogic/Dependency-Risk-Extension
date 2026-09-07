@@ -151,27 +151,105 @@ export async function parseNpmLockfile(lockfilePath: string): Promise<LockPackag
   return [...out.values()];
 }
 
-function lockPathDepth(lockPath: string): number {
+export function lockPathDepth(lockPath: string): number {
   return lockPath.split("/node_modules/").length;
 }
 
-export async function findLockfiles(workspaceRoot: string): Promise<string[]> {
-  const candidates = [
-    "package-lock.json",
-    "npm-shrinkwrap.json",
-    "pnpm-lock.yaml",
-    "yarn.lock",
-  ];
-  const found: string[] = [];
-  for (const c of candidates) {
-    const p = path.join(workspaceRoot, c);
-    try {
-      await fs.access(p);
-      found.push(p);
-    } catch {
-      // missing
+export const LOCKFILE_DISCOVERY_LIMIT = 50;
+export const LOCKFILE_WALK_DEPTH = 8;
+
+const LOCKFILE_NAMES = new Set([
+  "package-lock.json",
+  "npm-shrinkwrap.json",
+  "pnpm-lock.yaml",
+  "yarn.lock",
+  "bun.lock",
+  "bun.lockb",
+]);
+
+const SKIP_DIRS = new Set([
+  "node_modules",
+  ".git",
+  "dist",
+  "out",
+  "build",
+  "coverage",
+  ".next",
+  ".turbo",
+  ".cache",
+  ".dep-risk",
+  ".yarn",
+  "vendor",
+]);
+
+export type LockfileKind = "npm" | "pnpm" | "yarn" | "bun" | "bun-binary";
+
+export function lockfileKind(filePath: string): LockfileKind | undefined {
+  const base = path.basename(filePath);
+  if (base === "package-lock.json" || base === "npm-shrinkwrap.json") {
+    return "npm";
+  }
+  if (base === "pnpm-lock.yaml") {
+    return "pnpm";
+  }
+  if (base === "yarn.lock") {
+    return "yarn";
+  }
+  if (base === "bun.lock") {
+    return "bun";
+  }
+  if (base === "bun.lockb") {
+    return "bun-binary";
+  }
+  return undefined;
+}
+
+export function mergeLockPackages(batches: LockPackage[][]): LockPackage[] {
+  const out = new Map<string, LockPackage>();
+  for (const batch of batches) {
+    for (const pkg of batch) {
+      const key = `${pkg.name}@${pkg.version}`;
+      const existing = out.get(key);
+      if (!existing || lockPathDepth(pkg.lockPath) < lockPathDepth(existing.lockPath)) {
+        out.set(key, pkg);
+      }
     }
   }
+  return [...out.values()];
+}
+
+/** Recursively find lockfiles, skipping install/build trees. */
+export async function findLockfiles(workspaceRoot: string): Promise<string[]> {
+  const found: string[] = [];
+
+  async function walk(dir: string, depth: number): Promise<void> {
+    if (found.length >= LOCKFILE_DISCOVERY_LIMIT || depth > LOCKFILE_WALK_DEPTH) {
+      return;
+    }
+    let entries;
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (found.length >= LOCKFILE_DISCOVERY_LIMIT) {
+        return;
+      }
+      if (entry.isDirectory()) {
+        if (SKIP_DIRS.has(entry.name) || entry.name.startsWith(".")) {
+          continue;
+        }
+        await walk(path.join(dir, entry.name), depth + 1);
+        continue;
+      }
+      if (entry.isFile() && LOCKFILE_NAMES.has(entry.name)) {
+        found.push(path.join(dir, entry.name));
+      }
+    }
+  }
+
+  await walk(workspaceRoot, 0);
   return found;
 }
 
