@@ -1,4 +1,5 @@
 import type { RiskResult, RiskTier, ScanSummary } from "../types";
+import { isDowngrade } from "../util/version";
 
 export const TIER_THEME_COLOR: Record<RiskTier, string> = {
   critical: "charts.red",
@@ -85,7 +86,7 @@ export function packageTooltip(risk: RiskResult): string {
   ];
   if (risk.recommendedBump) {
     lines.push(
-      `\n**Fix** → \`${risk.recommendedBump}\`${risk.isMajorBump ? "  $(alert) major" : ""}`
+      `\n**Fix** → \`${risk.recommendedBump}\`${risk.isMajorBump ? "  $(alert) major" : ""}${isDowngrade(risk) ? "  $(alert) downgrade" : ""}`
     );
   }
   lines.push(`\n${packageGlance(risk)}`);

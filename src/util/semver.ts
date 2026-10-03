@@ -15,6 +15,12 @@ export function majorsBehind(current: string, latest: string): number | undefine
   return Math.max(0, b.major - a.major);
 }
 
+export function isDowngrade(from: string, to: string): boolean {
+  const a = semver.coerce(from);
+  const b = semver.coerce(to);
+  return !!a && !!b && semver.lt(b, a);
+}
+
 export function isMajorBump(from: string, to: string): boolean {
   const a = semver.coerce(from);
   const b = semver.coerce(to);

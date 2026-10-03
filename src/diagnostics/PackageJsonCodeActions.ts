@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import type { RiskResult } from "../types";
+import { isDowngrade } from "../util/version";
 
 export interface RiskLookup {
   getRiskForDiagnostic(diagnostic: vscode.Diagnostic): RiskResult | undefined;
@@ -54,7 +55,7 @@ function pushActions(
 
   if (risk.tier !== "eol" && risk.recommendedBump) {
     const fix = new vscode.CodeAction(
-      `Apply Safe Fix: ${risk.signals.pkg.name} → ${risk.recommendedBump}`,
+      `Apply Safe Fix: ${risk.signals.pkg.name} → ${risk.recommendedBump}${isDowngrade(risk) ? " (downgrade)" : ""}`,
       vscode.CodeActionKind.QuickFix
     );
     fix.command = { command: "depRisk.applySafeFix", title: fix.title, arguments: [{ risk }] };

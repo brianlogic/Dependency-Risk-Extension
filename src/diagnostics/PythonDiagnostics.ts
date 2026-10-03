@@ -1,4 +1,5 @@
 import * as path from "path";
+import { isDowngrade } from "../util/version";
 import * as vscode from "vscode";
 import { findPythonDependencyNameAtOffset, findPythonDependencyOffsets } from "./pythonRanges";
 import { namesMatch } from "../util/version";
@@ -80,7 +81,7 @@ export class PythonDiagnostics implements vscode.Disposable {
             offsetToPosition(text, offsets.start),
             offsetToPosition(text, offsets.end)
           );
-          const target = risk.recommendedBump ? ` → ${risk.recommendedBump}` : "";
+          const target = risk.recommendedBump ? ` → ${risk.recommendedBump}${isDowngrade(risk) ? " (downgrade)" : ""}` : "";
           const msg = `[${risk.tier}] ${name}@${risk.signals.pkg.version}${target}: ${risk.reasons[0] ?? risk.tier}`;
           const diag = new vscode.Diagnostic(
             range,

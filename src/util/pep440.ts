@@ -60,6 +60,10 @@ export function comparePep440(left: string, right: string): number | undefined {
   return compareParsed(a, b);
 }
 
+export function pep440IsDowngrade(from: string, to: string): boolean {
+  return (comparePep440(to, from) ?? 0) < 0;
+}
+
 export function pep440Gt(left: string, right: string): boolean {
   return (comparePep440(left, right) ?? 0) > 0;
 }

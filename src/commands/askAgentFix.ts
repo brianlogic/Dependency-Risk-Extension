@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import type { RiskResult } from "../types";
+import { isDowngrade } from "../util/version";
 
 export function buildAgentPrompt(risk: RiskResult): string {
   const pkg = risk.signals.pkg;
@@ -23,6 +24,12 @@ export function buildAgentPrompt(risk: RiskResult): string {
         `Investigate ${cves} affecting ${ecosystem} package \`${pkg.name}@${pkg.version}\`. No complete fixed version is published in the advisory data, so do not invent or blindly apply a target version.`,
         `Determine whether a mitigation, override, replacement package, or upstream update is appropriate. Run the test suite after any change and keep unrelated dependency versions unchanged.`,
       ];
+
+  if (isDowngrade(risk)) {
+    lines.push(
+      `WARNING: This moves \`${pkg.name}\` backwards. Before changing anything, check for APIs or features used in this repo that don't exist in \`${risk.recommendedBump}\`, and report them rather than silently removing code.`
+    );
+  }
 
   if (risk.isMajorBump) {
     lines.push(
@@ -84,16 +91,19 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** Modal warning for major bumps; true only if the user chooses to proceed. */
-export async function confirmMajorBump(risk: RiskResult): Promise<boolean> {
+/** Modal warning for major bumps and downgrades; true only if the user chooses to proceed. */
+export async function confirmRiskyBump(risk: RiskResult): Promise<boolean> {
+  const { name, version } = risk.signals.pkg;
+  const downgrade = isDowngrade(risk);
+  if (!downgrade && !risk.isMajorBump) {
+    return true;
+  }
   const proceed = "Proceed anyway";
   const changelog = "Review changelog";
-  const choice = await vscode.window.showWarningMessage(
-    `Upgrading ${risk.signals.pkg.name} to ${risk.recommendedBump} requires a major version bump with likely breaking changes. Review the changelog before proceeding.`,
-    { modal: true },
-    proceed,
-    changelog
-  );
+  const message = downgrade
+    ? `This moves ${name} backwards from ${version} to ${risk.recommendedBump}. Features or APIs added in newer versions may be missing, so code that uses them can break. Review the changelog before proceeding.`
+    : `Upgrading ${name} to ${risk.recommendedBump} requires a major version bump with likely breaking changes. Review the changelog before proceeding.`;
+  const choice = await vscode.window.showWarningMessage(message, { modal: true }, proceed, changelog);
   if (choice === changelog && risk.changelogUrl) {
     await vscode.env.openExternal(vscode.Uri.parse(risk.changelogUrl));
   }
@@ -115,7 +125,7 @@ export async function askAgentFix(risk: RiskResult): Promise<void> {
 
   const prompt = buildAgentPrompt(risk);
 
-  if (risk.isMajorBump && !(await confirmMajorBump(risk))) {
+  if (!(await confirmRiskyBump(risk))) {
     return;
   }
 

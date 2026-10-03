@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { isDowngrade } from "../util/version";
 import { findDependencyNameAtOffset, findDependencyOffsets } from "./packageJsonRanges";
 import type { RiskResult, ScanSummary } from "../types";
 
@@ -72,7 +73,7 @@ export class PackageJsonDiagnostics implements vscode.Disposable {
           if (!range) {
             continue;
           }
-          const target = risk.recommendedBump ? ` → ${risk.recommendedBump}` : "";
+          const target = risk.recommendedBump ? ` → ${risk.recommendedBump}${isDowngrade(risk) ? " (downgrade)" : ""}` : "";
           const msg = `[${risk.tier}] ${name}@${risk.signals.pkg.version}${target}: ${risk.reasons[0] ?? risk.tier}`;
           const diag = new vscode.Diagnostic(
             range,

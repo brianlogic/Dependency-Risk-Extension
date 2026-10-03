@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { isDowngrade } from "../util/version";
 import { advisoryUrl } from "../osv/urls";
 import { riskResourceUri, themeIcon } from "./decorations";
 import { headline, packageGlance, packageTooltip, reasonIcon, usageLabel, worstTier } from "./presentation";
@@ -184,7 +185,7 @@ export class DepRiskTreeProvider implements vscode.TreeDataProvider<DepRiskTreeI
       if (element.risk.recommendedBump) {
         items.push(
           new ReasonItem(
-            `Safe target: ${element.risk.recommendedBump}${element.risk.isMajorBump ? " (major)" : ""}`,
+            `Safe target: ${element.risk.recommendedBump}${element.risk.isMajorBump ? " (major)" : ""}${isDowngrade(element.risk) ? " (downgrade)" : ""}`,
             element.risk.tier
           )
         );

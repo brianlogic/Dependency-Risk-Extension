@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import type { RiskResult } from "../types";
-import { confirmMajorBump } from "./askAgentFix";
+import { confirmRiskyBump } from "./askAgentFix";
 import { rewriteNpmManifest, rewritePythonManifest, type TextEdit } from "./rewriteSpec";
 
 const GLOBS = {
@@ -15,7 +15,7 @@ export async function applySafeFix(risk: RiskResult): Promise<void> {
     void vscode.window.showInformationMessage(`No safe fixed version is known for ${name}.`);
     return;
   }
-  if (risk.isMajorBump && !(await confirmMajorBump(risk))) {
+  if (!(await confirmRiskyBump(risk))) {
     return;
   }
 

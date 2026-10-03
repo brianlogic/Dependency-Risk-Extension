@@ -1,5 +1,6 @@
-import type { Ecosystem } from "../types";
+import type { Ecosystem, RiskResult } from "../types";
 import {
+  isDowngrade as npmIsDowngrade,
   isMajorBump as npmIsMajorBump,
   isQueryableNpmVersion,
   majorsBehind as npmMajorsBehind,
@@ -8,6 +9,7 @@ import {
 } from "./semver";
 import {
   isQueryablePypiVersion,
+  pep440IsDowngrade,
   pep440IsMajorBump,
   pep440MajorsBehind,
   pep440NextPatch,
@@ -30,6 +32,16 @@ export function majorsBehind(
 
 export function isMajorBump(from: string, to: string, ecosystem: Ecosystem = "npm"): boolean {
   return ecosystem === "pypi" ? pep440IsMajorBump(from, to) : npmIsMajorBump(from, to);
+}
+
+/** True when the recommended target is older than the installed version. */
+export function isDowngrade(risk: RiskResult): boolean {
+  const { version, ecosystem } = risk.signals.pkg;
+  const to = risk.recommendedBump;
+  if (!to) {
+    return false;
+  }
+  return ecosystem === "pypi" ? pep440IsDowngrade(version, to) : npmIsDowngrade(version, to);
 }
 
 export function pickSafeBumpForAdvisories(

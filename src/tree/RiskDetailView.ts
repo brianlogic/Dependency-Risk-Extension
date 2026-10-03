@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { excerptDetails, readingLinks } from "../osv/urls";
 import { TIER_LABEL, type RiskResult, type RiskTier, type VulnSummary } from "../types";
+import { isDowngrade } from "../util/version";
 import { packageGlance, usageLabel } from "./presentation";
 
 /**
@@ -71,7 +72,8 @@ function renderDetail(webview: vscode.Webview, risk: RiskResult): string {
 
   const bump = risk.recommendedBump
     ? `<div class="fix">Safe target <code>${escapeHtml(risk.recommendedBump)}</code>${
-        risk.isMajorBump ? " <span class=\"warn\">major</span>" : ""
+        (risk.isMajorBump ? " <span class=\"warn\">major</span>" : "") +
+        (isDowngrade(risk) ? " <span class=\"warn\">downgrade</span>" : "")
       }</div>`
     : "";
 
