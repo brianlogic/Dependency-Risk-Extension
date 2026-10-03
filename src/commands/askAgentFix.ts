@@ -84,6 +84,22 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** Modal warning for major bumps; true only if the user chooses to proceed. */
+export async function confirmMajorBump(risk: RiskResult): Promise<boolean> {
+  const proceed = "Proceed anyway";
+  const changelog = "Review changelog";
+  const choice = await vscode.window.showWarningMessage(
+    `Upgrading ${risk.signals.pkg.name} to ${risk.recommendedBump} requires a major version bump with likely breaking changes. Review the changelog before proceeding.`,
+    { modal: true },
+    proceed,
+    changelog
+  );
+  if (choice === changelog && risk.changelogUrl) {
+    await vscode.env.openExternal(vscode.Uri.parse(risk.changelogUrl));
+  }
+  return choice === proceed;
+}
+
 export async function askAgentFix(risk: RiskResult): Promise<void> {
   if (risk.tier === "eol") {
     const open = "Open EOL page";
@@ -99,22 +115,8 @@ export async function askAgentFix(risk: RiskResult): Promise<void> {
 
   const prompt = buildAgentPrompt(risk);
 
-  if (risk.isMajorBump) {
-    const proceed = "Proceed anyway";
-    const changelog = "Review changelog";
-    const choice = await vscode.window.showWarningMessage(
-      `Upgrading ${risk.signals.pkg.name} to ${risk.recommendedBump} requires a major version bump with likely breaking changes. Review the changelog before proceeding.`,
-      { modal: true },
-      proceed,
-      changelog
-    );
-    if (choice === changelog && risk.changelogUrl) {
-      await vscode.env.openExternal(vscode.Uri.parse(risk.changelogUrl));
-      return;
-    }
-    if (choice !== proceed) {
-      return;
-    }
+  if (risk.isMajorBump && !(await confirmMajorBump(risk))) {
+    return;
   }
 
   await openAgentWithPrompt(prompt);

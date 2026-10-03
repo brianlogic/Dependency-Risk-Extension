@@ -52,6 +52,19 @@ function pushActions(
   }
   seen.add(key);
 
+  if (risk.tier !== "eol" && risk.recommendedBump) {
+    const fix = new vscode.CodeAction(
+      `Apply Safe Fix: ${risk.signals.pkg.name} → ${risk.recommendedBump}`,
+      vscode.CodeActionKind.QuickFix
+    );
+    fix.command = { command: "depRisk.applySafeFix", title: fix.title, arguments: [{ risk }] };
+    fix.isPreferred = risk.tier === "critical" || risk.tier === "high";
+    if (diagnostic) {
+      fix.diagnostics = [diagnostic];
+    }
+    actions.push(fix);
+  }
+
   if (risk.tier !== "eol") {
     const ask = new vscode.CodeAction(
       `Ask Agent to Upgrade + Fix ${risk.signals.pkg.name}`,
@@ -62,8 +75,7 @@ function pushActions(
       title: ask.title,
       arguments: [{ risk }],
     };
-    ask.isPreferred = risk.tier === "critical" || risk.tier === "high";
-    if (diagnostic) {
+        if (diagnostic) {
       ask.diagnostics = [diagnostic];
     }
     actions.push(ask);

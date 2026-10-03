@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { getConfig } from "./config";
+import { applySafeFix } from "./commands/applySafeFix";
 import { askAgentFix, copyAgentPrompt } from "./commands/askAgentFix";
 import { PackageJsonCodeActions } from "./diagnostics/PackageJsonCodeActions";
 import { PackageJsonDiagnostics } from "./diagnostics/PackageJsonDiagnostics";
@@ -82,6 +83,12 @@ export function activate(context: vscode.ExtensionContext): void {
       const risk = item?.risk ?? (await pickRisk());
       if (risk) {
         await askAgentFix(risk);
+      }
+    }),
+    vscode.commands.registerCommand("depRisk.applySafeFix", async (item?: { risk: RiskResult }) => {
+      const risk = item?.risk ?? (await pickRisk());
+      if (risk) {
+        await applySafeFix(risk);
       }
     }),
     vscode.commands.registerCommand("depRisk.copyAgentPrompt", async (item?: { risk: RiskResult }) => {

@@ -102,6 +102,11 @@
         "icon": "$(sparkle)"
       },
       {
+        "command": "depRisk.applySafeFix",
+        "title": "Apply Safe Fix",
+        "icon": "$(wrench)"
+      },
+      {
         "command": "depRisk.showRisk",
         "title": "Dep Risk: View Risk Details",
         "icon": "$(preview)"
@@ -129,14 +134,19 @@
       ],
       "view/item/context": [
         {
-          "command": "depRisk.askAgentFix",
+          "command": "depRisk.applySafeFix",
           "when": "(view == depRisk.sidebar || view == depRisk.explorer) && viewItem =~ /depRisk\\.package/",
           "group": "inline@1"
         },
         {
-          "command": "depRisk.showRisk",
+          "command": "depRisk.askAgentFix",
           "when": "(view == depRisk.sidebar || view == depRisk.explorer) && viewItem =~ /depRisk\\.package/",
           "group": "inline@2"
+        },
+        {
+          "command": "depRisk.showRisk",
+          "when": "(view == depRisk.sidebar || view == depRisk.explorer) && viewItem =~ /depRisk\\.package/",
+          "group": "inline@3"
         },
         {
           "command": "depRisk.openAdvisory",
