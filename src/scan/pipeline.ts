@@ -1,8 +1,21 @@
 /**
- * Scan pipeline: turns a workspace folder into a ScanSummary.
- * Phases: parse lockfiles -> collect direct deps -> scan imports -> select packages
- * -> OSV batch query -> registry metadata -> hydrate + score -> runtime EOL -> summarize.
- * Network results go through RiskCache so repeat scans are mostly offline.
+ * Turns one workspace folder into a ScanSummary.
+ *
+ * Inventory is one JavaScript lockfile type and one Python lockfile type
+ * (npm, then pnpm, Yarn, Bun; and uv, then Poetry, Pipfile, pinned requirements).
+ * Both ecosystems are included when both are present. Parsing two types for the
+ * same ecosystem would count one install twice. Git, file, link, and workspace
+ * versions are dropped before any network call.
+ *
+ * OSV is queried for every selected package. Registry metadata is fetched only
+ * for direct, imported, or already-vulnerable packages. A transitive package
+ * with no advisory is therefore never marked stale: staleness needs a latest
+ * version, and fetching every transitive packument is the expensive call.
+ *
+ * One package or one registry failing is recorded on `summary.errors` and the
+ * scan continues, so a summary can be partial. Clear packages are omitted.
+ * Repeat scans read RiskCache and only go to the network for misses, unless
+ * the caller passes `force`.
  */
 import * as fs from "fs/promises";
 import * as path from "path";
@@ -63,10 +76,13 @@ export class ScanPipeline {
     this.eol = new EolClient(this.cache);
   }
 
-/**
- * Runs every phase and returns the summary. Failures in a single source (one package, one
- * registry) are collected in `summary.errors` instead of aborting, so results may be partial.
- */
+  /**
+   * Runs every phase. `force` bypasses the OSV package-hit cache and the
+   * registry cache; a full advisory record is still reused until its
+   * `modified` timestamp changes. `token` skips packages that have not
+   * started hydration. The querybatch call itself is not cancelled, and a
+   * hydration request already in flight still finishes.
+   */
   async scan(
     folder: vscode.WorkspaceFolder,
     opts?: { force?: boolean; token?: vscode.CancellationToken; onProgress?: ProgressFn }
@@ -89,7 +105,8 @@ export class ScanPipeline {
     onProgress("Querying OSV", `${packages.length} packages`);
     const batch = await this.osv.queryBatch(packages, { force: opts?.force });
 
-// Registry metadata is only needed for packages the user cares about or that have advisories.
+    // Transitive packages with no advisory skip the registry. Without a latest
+    // version they cannot be stale, and they have nothing else to score.
     const registryKeys = packages.filter((pkg) => {
       const refs = batch.get(packageVersionKey(pkg)) ?? [];
       return pkg.direct || pkg.imported || refs.length > 0;
@@ -104,11 +121,12 @@ export class ScanPipeline {
     return summarize(packages.length, results, errors, onProgress);
   }
 
-/**
- * Gathers names declared directly by the user (package.json, pyproject.toml, requirements*.txt)
- * plus runtime pins (Node / Python) used for the EOL check. Discovery is capped per file type
- * to keep huge monorepos fast; hitting a cap is reported in `errors`.
- */
+  /**
+   * Names the user declared (package.json, pyproject.toml, requirements) plus
+   * the Node and Python pins used for EOL. Discovery is capped per file type;
+   * hitting the package.json cap is reported because direct-dependency signals
+   * may then be incomplete. A bad manifest is recorded and skipped.
+   */
   private async collectDirectDeps(
     folder: vscode.WorkspaceFolder,
     token: vscode.CancellationToken | undefined,
@@ -159,7 +177,8 @@ export class ScanPipeline {
       (await parseRequirementsFile(file)).direct.forEach((name) => direct.add(name));
     });
 
-// Version-manager pin files (.nvmrc, .python-version) win over engines / requires-python.
+    // .nvmrc and .python-version name the runtime in use. engines and
+    // requires-python are often ranges, which the EOL check ignores, so a pin wins.
     return {
       direct,
       packageJsonCount: manifests.paths.length,
@@ -170,10 +189,12 @@ export class ScanPipeline {
     };
   }
 
-/**
- * Drops non-registry entries (git/file/link/workspace), then enforces `maxPackagesPerScan`,
- * keeping direct and imported packages ahead of the transitive rest.
- */
+  /**
+   * Drops versions OSV cannot query, then applies `maxPackagesPerScan`.
+   * Direct and imported packages are kept ahead of the transitive rest so the
+   * cap cuts packages the workspace does not name first. `scanTransitive`
+   * false drops everything that is neither direct nor imported.
+   */
   private selectPackages(
     lockPackages: LockPackage[],
     direct: Set<string>,
@@ -205,7 +226,11 @@ export class ScanPipeline {
     return packages;
   }
 
-/** Fetches latest version / publish date / changelog URL once per package name (bounded concurrency). */
+  /**
+   * Latest version, last publish, and changelog URL, once per package name.
+   * Versions of the same package share one registry document. Failures are
+   * recorded per package; the others still return.
+   */
   private async loadRegistryMeta(
     registryKeys: PackageRef[],
     force: boolean | undefined,
@@ -228,10 +253,12 @@ export class ScanPipeline {
     return metaByKey;
   }
 
-/**
- * Hydrates advisories for each package (OSV batch only returns ids), combines them with registry
- * signals, and scores. Packages tiered "clear" are omitted from the results.
- */
+  /**
+   * Loads full advisories for the ids from querybatch, attaches registry
+   * signals, and scores. A package whose hydration fails is scored with no
+   * advisories and the error is recorded, so a bad record cannot hide the
+   * rest of the inventory. Clear packages are left out of the list.
+   */
   private async scoreAll(
     packages: PackageRef[],
     batch: Map<string, { id: string; modified?: string }[]>,
@@ -263,7 +290,11 @@ export class ScanPipeline {
     return results;
   }
 
-/** Adds a result when the pinned Node or Python runtime is end-of-life. */
+  /**
+   * Adds an EOL result for a pinned Node or Python runtime that is already
+   * past end-of-life or inside the configured horizon. An unreadable cycle
+   * list is recorded; the package results already collected are kept.
+   */
   private async appendRuntimeEol(
     results: RiskResult[],
     enginesNode: string | undefined,
@@ -293,10 +324,12 @@ export class ScanPipeline {
     return ecosystem === "pypi" ? this.pypi : this.npm;
   }
 
-/**
- * Finds lockfiles and parses one JS kind and one Python kind (by priority) so the same
- * package is not counted twice. Multiple files of the chosen kind (monorepos) are merged.
- */
+  /**
+   * Parses every lockfile of the winning JavaScript kind and the winning
+   * Python kind. Nested lockfiles of that kind are merged by name and version,
+   * keeping the shallowest install path. Binary bun.lockb is reported and not
+   * parsed. A file that fails to parse is skipped.
+   */
   private async loadLockPackages(root: string, errors: string[]): Promise<LockPackage[]> {
     const locks = await findLockfiles(root);
     if (!locks.length) {
@@ -367,11 +400,12 @@ export class ScanPipeline {
     return mergeLockPackages(batches);
   }
 
-/**
- * Marks each package direct / imported. npm "direct" also requires a hoisted or workspace install,
- * so a nested copy of a directly-declared name is treated as transitive. PyPI names are
- * compared after normalization (PEP 503).
- */
+  /**
+   * Marks direct and imported. An npm package listed in package.json is direct
+   * only when its lock path is a hoisted or workspace install, so a nested copy
+   * of that same name stays transitive. PyPI names are compared after PEP 503
+   * normalization (`Requests` matches `requests`).
+   */
   private toPackageRefs(
     lockPackages: LockPackage[],
     direct: Set<string>,
@@ -460,7 +494,10 @@ function uniqueByName(packages: PackageRef[]): PackageRef[] {
   return out;
 }
 
-/** Counts results per tier and sorts: tier first, then imported > direct > transitive, then name. */
+/**
+ * Counts each tier, then orders results by severity, then by how close the
+ * package is to the workspace (imported, then direct, then transitive), then by name.
+ */
 function summarize(
   packageCount: number,
   results: RiskResult[],

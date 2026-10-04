@@ -1,6 +1,16 @@
 /**
- * Extension entry point. Wires views, commands, diagnostics and scan triggers together.
- * Module-level state is intentional: VS Code activates one instance per window.
+ * Extension host wiring. `activate` registers views and commands before any await,
+ * because VS Code rejects a view that has no data provider yet. `bindWorkspace`
+ * then attaches the scan to the first open folder: its cache, lockfile watcher,
+ * and daily rescan.
+ *
+ * One scan runs at a time. A request that arrives mid-scan collapses into
+ * `pendingScan` and runs when the current one finishes; if any queued request
+ * asked to bypass the cache, the rerun does too. Results from a cancelled scan,
+ * or from a folder that is no longer active, are discarded so they cannot
+ * overwrite the scan that belongs to the new folder.
+ *
+ * State lives at module scope because the extension host calls `activate` once per window.
  */
 import * as vscode from "vscode";
 import { getConfig } from "./config";
@@ -18,7 +28,7 @@ import { RiskDetailView } from "./tree/RiskDetailView";
 import { TIER_ICON_ID, headline } from "./tree/presentation";
 import { TIER_ORDER, type RiskResult, type ScanSummary } from "./types";
 
-// Scan state: at most one scan runs at a time; requests during a scan collapse into `pendingScan`.
+// Bound folder, the pipeline that owns its cache, and the single in-flight scan.
 let pipeline: ScanPipeline | undefined;
 let statusBar: vscode.StatusBarItem;
 let dailyTimer: NodeJS.Timeout | undefined;
@@ -73,6 +83,8 @@ export function activate(context: vscode.ExtensionContext): void {
       new ManifestCodeActions([diagnostics, pythonDiagnostics]),
       { providedCodeActionKinds: [vscode.CodeActionKind.QuickFix] }
     ),
+    // Palette commands have no tree row, so handlers fall back to pickRisk().
+    // A tree click passes the row; Apply Safe Fix tooltips pass only name + ecosystem.
     vscode.commands.registerCommand("depRisk.show", async () => {
       await focusDepRiskView();
       const folder = requireFolder(false);
@@ -136,6 +148,8 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration("depRisk") && activeFolder) {
+        // Re-score with the new thresholds, but keep cached OSV and registry
+        // responses. Refresh, the lockfile watcher, and the daily timer bypass them.
         resetDailyTimer();
         void runScan(activeFolder, false);
       }
@@ -241,8 +255,10 @@ function resetDailyTimer(): void {
 }
 
 /**
- * Single-flight scan. If one is running, remember the request (forcing wins) and re-run once
- * it finishes. Results are dropped if the scan was cancelled or the folder changed meanwhile.
+ * Single-flight scan. A second call while one is running replaces `pendingScan`
+ * (a forced request stays forced) and returns the same promise. The progress
+ * bar's cancel token is forwarded onto `scanCancellation`, which a folder
+ * change also cancels.
  */
 function runScan(folder: vscode.WorkspaceFolder, force: boolean): Thenable<void> {
   if (scanInFlight) {
@@ -267,6 +283,7 @@ function runScan(folder: vscode.WorkspaceFolder, force: boolean): Thenable<void>
       cancellable: true,
     },
     async (progress, token) => {
+      // The progress UI and a folder switch share one token, so either one aborts the scan.
       const cancelSubscription = token.onCancellationRequested(() => cancellation.cancel());
       try {
         statusBar.text = "$(sync~spin) Dep Risk";
@@ -278,6 +295,8 @@ function runScan(folder: vscode.WorkspaceFolder, force: boolean): Thenable<void>
             statusBar.text = `$(sync~spin) Dep Risk: ${phase}`;
           },
         });
+        // The folder may have changed during the await. Drop this summary so it
+        // cannot replace the results for the folder now bound.
         if (
           cancellation.token.isCancellationRequested ||
           activeFolder?.uri.toString() !== folder.uri.toString()

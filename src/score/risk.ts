@@ -1,15 +1,33 @@
+/**
+ * Turns package signals into one tier. Vulnerabilities outrank staleness, so a
+ * package with an advisory is never also marked stale.
+ *
+ * Critical: a public exploit, CVSS >= 9, or a CRITICAL label. A high-severity
+ * advisory on a package the workspace imports is also critical, because that
+ * code is on a path the project loads. Other advisories are high.
+ * Stale: no advisories, and either several majors behind latest or no publish
+ * inside the inactivity window. The recommended bump for a stale package is latest.
+ * Clear: none of the above. The pipeline omits these from the result list.
+ *
+ * `recommendedBump` is the smallest version that clears every advisory,
+ * preferring a fix that stays on the current major. It is absent when any
+ * advisory has no published fix newer than the installed version; callers
+ * must not invent a target in that case.
+ * EOL is not scored here. `scoreRuntimeEol` builds a synthetic result for the
+ * pinned Node or Python runtime.
+ */
 import { advisoryUrl } from "../osv/urls";
 import { monthsBetween } from "../util/semver";
 import { isMajorBump, majorsBehind, pickSafeBumpForAdvisories } from "../util/version";
 import type { DepRiskConfig } from "../config";
 import type { PackageSignals, RiskResult, VulnSummary } from "../types";
 
-// Tier rules (see scorePackage): critical = any critical advisory, or a high one in a package the code imports;
-// high = any other advisory; stale = no advisories but far behind or unmaintained.
+/** Exploit, CVSS >= 9, or an explicit CRITICAL label. A HIGH label with a lower score is not critical. */
 function isCriticalVuln(v: VulnSummary): boolean {
   return v.hasPublicExploit || (v.cvssScore ?? 0) >= 9 || v.severity === "CRITICAL";
 }
 
+/** HIGH label, whatever the score. With no label, a score in [7, 9); 9 and above is critical. */
 function isHighVuln(v: VulnSummary): boolean {
   if (v.severity === "HIGH") {
     return true;
@@ -51,17 +69,9 @@ function usageLabel(pkg: PackageSignals["pkg"]): string {
 }
 
 /**
- * Tier priority: critical > high > stale > eol > clear.
- *
- * Critical: exploit / CVSS≥9 / CRITICAL label, OR high-severity vuln on an imported code path.
- * High: any remaining known advisory.
- * Stale: >N majors behind or maintainer inactive.
- * EOL: runtime/framework within horizon (attached as a synthetic package result by pipeline).
- */
-/**
- * Assigns a tier and human-readable reasons from advisories + registry signals.
- * An advisory in a package the code actually imports is escalated to critical when it is high severity.
- * `recommendedBump` clears every advisory with a known fix; stale packages recommend the latest version.
+ * Picks the single tier for one package. Reasons lead with the worst advisory.
+ * A high-or-worse advisory on an imported package is raised to critical; the
+ * same advisory on a direct or transitive package stays high.
  */
 export function scorePackage(
   signals: PackageSignals,
@@ -161,7 +171,12 @@ export function scorePackage(
   };
 }
 
-/** Synthetic "package" result for an EOL (or soon-EOL within `eolHorizonMonths`) Node/Python runtime; undefined if comfortably supported. */
+/**
+ * EOL is not a package. The synthetic ref lets the tree and the sort treat the
+ * runtime like a direct, imported dependency. `recommendedBump` stays empty:
+ * the fix is a runtime upgrade, and the changelog link points at endoflife.date.
+ * Returns undefined while the pin is supported for longer than `eolHorizonMonths`.
+ */
 export function scoreRuntimeEol(
   eol: NonNullable<PackageSignals["runtimeEol"]>,
   cfg: DepRiskConfig
@@ -202,7 +217,11 @@ export function scoreRuntimeEol(
   };
 }
 
-/** Returns a copy of `signals` with latest version, majors behind and months since publish filled in. */
+/**
+ * Copies `signals` and fills latest version, majors behind, and months since
+ * the last publish. Either input may be missing; a version pair that cannot
+ * be compared leaves `majorsBehind` unset, so the package is not called stale.
+ */
 export function attachRegistrySignals(
   signals: PackageSignals,
   latest: string | undefined,
