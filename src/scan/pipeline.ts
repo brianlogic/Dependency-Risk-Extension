@@ -2,7 +2,8 @@
  * Turns one workspace folder into a ScanSummary.
  *
  * Inventory is one JavaScript lockfile type and one Python lockfile type
- * (npm, then pnpm, Yarn, Bun; and uv, then Poetry, Pipfile, pinned requirements).
+ * (package-lock.json; and uv, then Poetry, pinned requirements). pnpm, Yarn, Bun, and
+ * Pipfile lockfiles are not read; finding one adds a warning.
  * Both ecosystems are included when both are present. Parsing two types for the
  * same ecosystem would count one install twice. Git, file, link, and workspace
  * versions are dropped before any network call.
@@ -35,11 +36,7 @@ import {
   type LockfileKind,
 } from "../lockfile/npm";
 import type { LockPackage } from "../lockfile/types";
-import { parsePnpmLockfile } from "../lockfile/pnpm";
-import { parseYarnLockfile } from "../lockfile/yarn";
-import { parseBunLockfile } from "../lockfile/bun";
 import {
-  parsePipfileLock,
   parsePoetryLockfile,
   parseRequirementsFile,
   parseUvLockfile,
@@ -327,15 +324,13 @@ export class ScanPipeline {
   /**
    * Parses every lockfile of the winning JavaScript kind and the winning
    * Python kind. Nested lockfiles of that kind are merged by name and version,
-   * keeping the shallowest install path. Binary bun.lockb is reported and not
-   * parsed. A file that fails to parse is skipped.
+   * keeping the shallowest install path. Unsupported lockfiles (pnpm, Yarn, Bun,
+   * Pipfile) are reported and not parsed. A file that fails to parse is skipped.
    */
   private async loadLockPackages(root: string, errors: string[]): Promise<LockPackage[]> {
     const locks = await findLockfiles(root);
     if (!locks.length) {
-      errors.push(
-        "No lockfile found (package-lock.json, pnpm-lock.yaml, yarn.lock, bun.lock, uv.lock, poetry.lock, Pipfile.lock, or pinned requirements.txt)."
-      );
+      errors.push("No lockfile found (package-lock.json, uv.lock, poetry.lock, or pinned requirements.txt).");
       return [];
     }
     if (locks.length >= LOCKFILE_DISCOVERY_LIMIT) {
@@ -355,25 +350,23 @@ export class ScanPipeline {
       byKind.set(kind, list);
     }
 
-    const JS_KINDS: LockfileKind[] = ["npm", "pnpm", "yarn", "bun"];
-    const PY_KINDS: LockfileKind[] = ["uv", "poetry", "pipfile", "requirements"];
-    const jsKind = firstKind(byKind, JS_KINDS);
+    const unsupported = byKind.get("unsupported");
+    if (unsupported) {
+      errors.push(
+        `Unsupported lockfile${unsupported.length === 1 ? "" : "s"} ignored: ${unsupported
+          .map((lock) => path.relative(root, lock) || path.basename(lock))
+          .join(", ")}. Supported: package-lock.json, uv.lock, poetry.lock, pinned requirements.txt.`
+      );
+    }
+
+    const PY_KINDS: LockfileKind[] = ["uv", "poetry", "requirements"];
+    const jsKind: LockfileKind | undefined = byKind.has("npm") ? "npm" : undefined;
     const pyKind = firstKind(byKind, PY_KINDS);
-    for (const [label, kinds, priority] of [
-      ["JavaScript", JS_KINDS, "npm, pnpm, Yarn, then Bun"],
-      ["Python", PY_KINDS, "uv, Poetry, Pipfile, then pinned requirements.txt"],
-    ] as const) {
-      if (kinds.filter((kind) => byKind.has(kind)).length > 1) {
-        errors.push(`Multiple ${label} lockfile types found; scanning by priority: ${priority}.`);
-      }
+    if (PY_KINDS.filter((kind) => byKind.has(kind)).length > 1) {
+      errors.push("Multiple Python lockfile types found; scanning by priority: uv, Poetry, then pinned requirements.txt.");
     }
 
     if (!jsKind && !pyKind) {
-      if (byKind.has("bun-binary")) {
-        errors.push(
-          "Found bun.lockb (binary). Generate bun.lock with bun install on Bun 1.2+, or add an npm/pnpm/Yarn lockfile."
-        );
-      }
       return [];
     }
 
@@ -446,18 +439,10 @@ async function parseLockfile(
   switch (kind) {
     case "npm":
       return parseNpmLockfile(lock);
-    case "pnpm":
-      return parsePnpmLockfile(lock);
-    case "yarn":
-      return parseYarnLockfile(lock);
-    case "bun":
-      return parseBunLockfile(lock);
     case "uv":
       return parseUvLockfile(lock);
     case "poetry":
       return parsePoetryLockfile(lock);
-    case "pipfile":
-      return parsePipfileLock(lock);
     case "requirements": {
       const parsed = await parseRequirementsFile(lock);
       if (parsed.unpinned) {

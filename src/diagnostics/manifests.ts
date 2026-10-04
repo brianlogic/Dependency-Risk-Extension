@@ -32,4 +32,4 @@ export const pythonManifest: ManifestConfig = {
 
 /** Lockfiles, manifests, and runtime pins that should trigger a rescan. */
 export const WORKSPACE_WATCH_GLOB =
-  "{package.json,**/package.json,**/package-lock.json,**/npm-shrinkwrap.json,**/pnpm-lock.yaml,**/yarn.lock,**/bun.lock,**/uv.lock,**/poetry.lock,**/Pipfile.lock,**/requirements*.txt,**/pyproject.toml,.nvmrc,.node-version,.python-version,runtime.txt}";
+  "{package.json,**/package.json,**/package-lock.json,**/npm-shrinkwrap.json,**/uv.lock,**/poetry.lock,**/requirements*.txt,**/pyproject.toml,.nvmrc,.node-version,.python-version,runtime.txt}";

@@ -1,6 +1,6 @@
 /**
  * Python manifest and lockfile parsing. Line-based (no TOML dependency): reads uv.lock and
- * poetry.lock (same `[[package]]` layout), Pipfile.lock (JSON), requirements*.txt and pyproject.toml.
+ * poetry.lock (same `[[package]]` layout), requirements*.txt and pyproject.toml.
  * Only registry-hosted packages are returned; git/path/editable sources are skipped.
  */
 import * as fs from "fs/promises";
@@ -19,32 +19,6 @@ async function parseTomlLockfile(lockfilePath: string): Promise<LockPackage[]> {
 
 export const parseUvLockfile = parseTomlLockfile;
 export const parsePoetryLockfile = parseTomlLockfile;
-
-/** Pipfile.lock: `default` and `develop` sections; VCS/path/file entries are skipped. */
-export async function parsePipfileLock(lockfilePath: string): Promise<LockPackage[]> {
-  const json = JSON.parse(await fs.readFile(lockfilePath, "utf8")) as Record<
-    string,
-    Record<string, { version?: string; git?: string; path?: string; file?: string }>
-  >;
-  const out = new Map<string, LockPackage>();
-  for (const section of ["default", "develop"]) {
-    const deps = json[section];
-    if (!deps || typeof deps !== "object") {
-      continue;
-    }
-    for (const [name, meta] of Object.entries(deps)) {
-      if (!meta || meta.git || meta.path || meta.file) {
-        continue;
-      }
-      const version = meta.version?.replace(/^==/, "");
-      if (!name || !version) {
-        continue;
-      }
-      out.set(`${name}@${version}`, pypiPackage(name, version));
-    }
-  }
-  return [...out.values()];
-}
 
 /**
  * requirements*.txt: every named requirement is "direct", but only `==` pins become scannable

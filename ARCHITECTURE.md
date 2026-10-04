@@ -10,7 +10,7 @@ Dependency Version Risk is a VS Code / Cursor extension. It reads a workspace's 
 |--------|------|
 | `extension.ts`, `config.ts`, `types.ts` | Entry point, `depRisk.*` settings, shared types (`RiskResult`, `ScanSummary`, tiers) |
 | `scan/` | `ScanPipeline`: orchestrates one scan |
-| `lockfile/` | Parsers for npm, pnpm, Yarn, Bun, uv, Poetry, Pipfile, requirements; lockfile discovery |
+| `lockfile/` | Parsers for npm, uv, Poetry, requirements; lockfile discovery (unsupported kinds are detected only to warn) |
 | `graph/` | Finds which packages the code actually imports (JS and Python) |
 | `osv/` | OSV.dev client (batch query + advisory hydration) and advisory link/text helpers |
 | `registry/` | npm and PyPI metadata (latest version, last publish, changelog URL) |
@@ -33,7 +33,7 @@ Dependency Version Risk is a VS Code / Cursor extension. It reads a workspace's 
 
 `ScanPipeline.scan` runs these phases and reports each through `onProgress`:
 
-1. **Parse lockfiles.** Find lockfiles (capped at 50), pick one JS kind (npm > pnpm > Yarn > Bun) and one Python kind (uv > Poetry > Pipfile > requirements), parse every file of that kind and merge them.
+1. **Parse lockfiles.** Find lockfiles (capped at 50), warn about unsupported ones (pnpm, Yarn, Bun, Pipfile), then parse every npm lockfile and every file of one Python kind (uv > Poetry > requirements) and merge them.
 2. **Direct dependencies.** Names from `package.json`, `pyproject.toml`, `requirements*.txt`, plus the runtime pins (`.nvmrc`, `.python-version`, `engines.node`, `requires-python`).
 3. **Imports.** Scan up to 4,000 source files for imported packages; used packages are ranked above purely transitive ones.
 4. **Select.** Drop git/file/workspace entries, mark direct/imported, honour `scanTransitive` and `maxPackagesPerScan` (direct and imported kept first).
@@ -70,7 +70,7 @@ After a scan, `runScan` fans out to: `DepRiskTreeProvider` (sidebar and Explorer
 
 ## Limits and decisions
 
-- Line-based parsers for pnpm, Yarn, Bun, TOML and requirements avoid YAML/TOML dependencies; unusual formatting may be missed.
+- Line-based parsers for TOML and requirements avoid a TOML dependency; unusual formatting may be missed.
 - Python manifest rewriting only handles a single simple clause (`==`, `>=`, `~=`, `===`); anything else is reported, not guessed. npm only rewrites plain `1.2.3` specs with an optional `^ ~ >=` prefix.
 - Import detection is textual and approximate; Python import names can differ from PyPI names.
 - Caps: 50 lockfiles, 200 `package.json`, 4,000 source files, `maxPackagesPerScan` packages. Hitting one is reported in the scan errors.

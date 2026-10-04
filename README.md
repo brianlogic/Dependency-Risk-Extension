@@ -17,7 +17,7 @@ A package with no advisory, staleness, or EOL signal is omitted from the risk li
 
 The extension inventories lockfiles, queries OSV, then scores each package.
 
-- **Lockfiles.** npm: `package-lock.json`, `npm-shrinkwrap.json`, `pnpm-lock.yaml`, `yarn.lock` (classic and Berry), `bun.lock`. Python: `uv.lock`, `poetry.lock`, `Pipfile.lock`, and pinned `requirements*.txt`. Both ecosystems are scanned when both are present. Unpinned requirements are reported, but they are not sent to OSV as versioned inventory. Nested lockfiles are included, not only files at the workspace root.
+- **Lockfiles.** npm: `package-lock.json`, `npm-shrinkwrap.json`. Python: `uv.lock`, `poetry.lock`, and pinned `requirements*.txt`. Both ecosystems are scanned when both are present. Unpinned requirements are reported, but they are not sent to OSV as versioned inventory. Nested lockfiles are included, not only files at the workspace root. `pnpm-lock.yaml`, `yarn.lock`, `bun.lock`, and `Pipfile.lock` are not supported; the scan warns when it finds one.
 - **Advisories.** OSV `querybatch` (chunked at 1,000 packages), then `/v1/vulns/{id}` for full records. Responses are validated, and transient failures are retried with bounded concurrency.
 - **Usage.** An import/require scan marks packages that workspace source actually uses. That usage can raise a high-severity issue to Critical.
 - **Safe bump.** The suggested upgrade is the minimum published version that clears every advisory with a fix. An advisory with no published fix never becomes a blind jump to `latest`. A major bump opens a confirmation modal with a changelog link before the fix is applied.

@@ -184,34 +184,16 @@ const SKIP_DIRS = new Set([
   "site-packages",
 ]);
 
-export type LockfileKind =
-  | "npm"
-  | "pnpm"
-  | "yarn"
-  | "bun"
-  | "bun-binary"
-  | "uv"
-  | "poetry"
-  | "pipfile"
-  | "requirements";
+export type LockfileKind = "npm" | "uv" | "poetry" | "requirements" | "unsupported";
 
-/** Classifies a lockfile by file name; `bun-binary` (bun.lockb) is recognized only so it can be reported as unsupported. */
+/** Lockfiles we recognize only so the scan can warn that they are not read. */
+const UNSUPPORTED_LOCKFILES = new Set(["pnpm-lock.yaml", "yarn.lock", "bun.lock", "bun.lockb", "Pipfile.lock"]);
+
+/** Classifies a lockfile by file name; `unsupported` files are discovered only to be reported. */
 export function lockfileKind(filePath: string): LockfileKind | undefined {
   const base = path.basename(filePath);
   if (base === "package-lock.json" || base === "npm-shrinkwrap.json") {
     return "npm";
-  }
-  if (base === "pnpm-lock.yaml") {
-    return "pnpm";
-  }
-  if (base === "yarn.lock") {
-    return "yarn";
-  }
-  if (base === "bun.lock") {
-    return "bun";
-  }
-  if (base === "bun.lockb") {
-    return "bun-binary";
   }
   if (base === "uv.lock") {
     return "uv";
@@ -219,8 +201,8 @@ export function lockfileKind(filePath: string): LockfileKind | undefined {
   if (base === "poetry.lock") {
     return "poetry";
   }
-  if (base === "Pipfile.lock") {
-    return "pipfile";
+  if (UNSUPPORTED_LOCKFILES.has(base)) {
+    return "unsupported";
   }
   if (/^requirements.*\.txt$/i.test(base)) {
     return "requirements";
