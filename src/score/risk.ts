@@ -180,7 +180,6 @@ export function scoreRuntimeEol(
       ecosystem: eol.product === "python" ? "pypi" : "npm",
       direct: true,
       imported: true,
-      usage: "direct",
     },
     vulns: [],
     runtimeEol: eol,

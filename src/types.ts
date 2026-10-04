@@ -7,8 +7,6 @@ export function osvEcosystem(ecosystem: Ecosystem): string {
 
 export type RiskTier = "critical" | "high" | "stale" | "eol" | "clear";
 
-export type UsageKind = "direct" | "transitive";
-
 export interface PackageRef {
   name: string;
   version: string;
@@ -17,7 +15,6 @@ export interface PackageRef {
   direct: boolean;
   /** True when workspace source appears to import/require this package. */
   imported: boolean;
-  usage: UsageKind;
 }
 
 export interface VulnSummary {

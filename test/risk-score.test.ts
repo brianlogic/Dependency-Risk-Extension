@@ -38,7 +38,6 @@ function signals(vulns: VulnSummary[], imported = false): PackageSignals {
       ecosystem: "npm",
       direct: imported,
       imported,
-      usage: imported ? "direct" : "transitive",
     },
     vulns,
     latestVersion: "3.0.0",

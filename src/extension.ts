@@ -15,8 +15,8 @@ import { DepRiskDecorationProvider } from "./tree/decorations";
 import { DepRiskTreeProvider } from "./tree/DepRiskTreeProvider";
 import { OverviewView } from "./tree/OverviewView";
 import { RiskDetailView } from "./tree/RiskDetailView";
-import { headline } from "./tree/presentation";
-import type { RiskResult, ScanSummary } from "./types";
+import { TIER_ICON_ID, headline } from "./tree/presentation";
+import { TIER_ORDER, type RiskResult, type ScanSummary } from "./types";
 
 // Scan state: at most one scan runs at a time; requests during a scan collapse into `pendingScan`.
 let pipeline: ScanPipeline | undefined;
@@ -186,7 +186,7 @@ async function bindWorkspace(): Promise<void> {
 
   activeFolder = folder;
   pipeline = new ScanPipeline(folder.uri.fsPath);
-  await pipeline.init();
+  await pipeline.cache.init();
 
   lockWatcher?.dispose();
   lockWatcher = vscode.workspace.createFileSystemWatcher(
@@ -269,7 +269,6 @@ function runScan(folder: vscode.WorkspaceFolder, force: boolean): Thenable<void>
     async (progress, token) => {
       const cancelSubscription = token.onCancellationRequested(() => cancellation.cancel());
       try {
-        await scanPipeline.init();
         statusBar.text = "$(sync~spin) Dep Risk";
         const summary = await scanPipeline.scan(folder, {
           force,
@@ -322,19 +321,9 @@ function runScan(folder: vscode.WorkspaceFolder, force: boolean): Thenable<void>
 
 /** Status bar: per-tier counts with icons; warning icon when some sources failed. */
 function updateStatus(summary: ScanSummary): void {
-  const parts: string[] = [];
-  if (summary.byTier.critical) {
-    parts.push(`$(flame)${summary.byTier.critical}`);
-  }
-  if (summary.byTier.high) {
-    parts.push(`$(warning)${summary.byTier.high}`);
-  }
-  if (summary.byTier.stale) {
-    parts.push(`$(history)${summary.byTier.stale}`);
-  }
-  if (summary.byTier.eol) {
-    parts.push(`$(calendar)${summary.byTier.eol}`);
-  }
+  const parts = TIER_ORDER.filter((tier) => tier !== "clear" && summary.byTier[tier]).map(
+    (tier) => `$(${TIER_ICON_ID[tier]})${summary.byTier[tier]}`
+  );
   const icon = summary.errors.length ? "$(warning)" : "$(shield)";
   const result = parts.length ? parts.join(" ") : summary.errors.length ? "incomplete" : "$(pass) clear";
   statusBar.text = `${icon} Dep Risk ${result}`;

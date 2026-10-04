@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import { isDowngrade } from "../util/version";
 import { advisoryUrl } from "../osv/urls";
 import { riskResourceUri, themeIcon } from "./decorations";
-import { headline, packageGlance, packageTooltip, reasonIcon, usageLabel, worstTier } from "./presentation";
+import { TIER_ICON_ID, headline, packageGlance, packageTooltip, reasonIcon, usageLabel, worstTier } from "./presentation";
 import { TIER_LABEL, TIER_ORDER, type RiskResult, type RiskTier, type ScanSummary, type VulnSummary } from "../types";
 
 // Tree structure: Summary / scan-warning / Tier -> Package -> Advisory + Reason rows. Items carry `risk` so commands get it as their argument.
@@ -47,10 +47,10 @@ export class TierItem extends vscode.TreeItem {
     super(`${TIER_LABEL[tier]}`, vscode.TreeItemCollapsibleState.Expanded);
     this.description = `${count} package${count === 1 ? "" : "s"}`;
     this.contextValue = "depRisk.tier";
-    this.iconPath = themeIcon(tier === "critical" ? "flame" : tier === "high" ? "warning" : tier === "stale" ? "history" : "calendar", tier);
+    this.iconPath = themeIcon(TIER_ICON_ID[tier], tier);
     this.resourceUri = riskResourceUri("tier", tier, tier);
     const tooltip = new vscode.MarkdownString(
-      `$(${tier === "critical" ? "flame" : tier === "high" ? "warning" : tier === "stale" ? "history" : "calendar"}) **${TIER_LABEL[tier]}** — ${count} package${count === 1 ? "" : "s"}`
+      `$(${TIER_ICON_ID[tier]}) **${TIER_LABEL[tier]}** — ${count} package${count === 1 ? "" : "s"}`
     );
     tooltip.supportThemeIcons = true;
     this.tooltip = tooltip;
@@ -70,7 +70,7 @@ export class PackageItem extends vscode.TreeItem {
     this.tooltip = tooltip;
     this.contextValue = risk.isMajorBump ? "depRisk.package.major" : "depRisk.package";
     this.iconPath = themeIcon(
-      risk.signals.vulns[0]?.hasPublicExploit ? "flame" : risk.tier === "critical" ? "error" : risk.tier === "high" ? "warning" : risk.tier === "stale" ? "history" : "calendar",
+      risk.signals.vulns[0]?.hasPublicExploit ? "flame" : risk.tier === "critical" ? "error" : TIER_ICON_ID[risk.tier],
       risk.tier
     );
     this.resourceUri = riskResourceUri("pkg", risk.tier, `${pkg.name}@${pkg.version}`);

@@ -40,7 +40,7 @@ import type { RegistryClient } from "../registry/meta";
 import { attachRegistrySignals, scorePackage, scoreRuntimeEol } from "../score/risk";
 import { mapPool } from "../util/http";
 import { packageNameKey, packageVersionKey } from "../util/packageKey";
-import { isQueryableVersion, namesMatch } from "../util/version";
+import { isQueryableVersion, normalizePyName } from "../util/version";
 import { TIER_ORDER, type Ecosystem, type PackageRef, type RiskResult, type ScanSummary, type RiskTier, type VulnSummary } from "../types";
 
 /** Progress callback: `phase` is a short label, `detail` an optional count or note. */
@@ -63,11 +63,6 @@ export class ScanPipeline {
     this.eol = new EolClient(this.cache);
   }
 
-/** Loads the on-disk cache (idempotent, so `scan` can call it defensively). */
-  async init(): Promise<void> {
-    await this.cache.init();
-  }
-
 /**
  * Runs every phase and returns the summary. Failures in a single source (one package, one
  * registry) are collected in `summary.errors` instead of aborting, so results may be partial.
@@ -80,7 +75,7 @@ export class ScanPipeline {
     const errors: string[] = [];
     const onProgress = opts?.onProgress ?? (() => undefined);
 
-    await this.init();
+    await this.cache.init();
     onProgress("Parsing lockfile");
     const lockPackages = await this.loadLockPackages(folder.uri.fsPath, errors);
     const workspace = await this.collectDirectDeps(folder, opts?.token, errors);
@@ -94,8 +89,6 @@ export class ScanPipeline {
     onProgress("Querying OSV", `${packages.length} packages`);
     const batch = await this.osv.queryBatch(packages, { force: opts?.force });
 
-// Label only: advisory hydration actually happens per package inside scoreAll.
-    onProgress("Hydrating advisories");
 // Registry metadata is only needed for packages the user cares about or that have advisories.
     const registryKeys = packages.filter((pkg) => {
       const refs = batch.get(packageVersionKey(pkg)) ?? [];
@@ -126,73 +119,54 @@ export class ScanPipeline {
     enginesNode?: string;
     requiresPython?: string;
   }> {
-    const manifestUris = await vscode.workspace.findFiles(
-      new vscode.RelativePattern(folder, "**/package.json"),
-      "{**/node_modules/**,**/dist/**,**/out/**,**/build/**}",
-      201,
-      token
-    );
-    if (manifestUris.length > 200) {
-      errors.push("Manifest discovery reached its 200-file limit; direct dependency signals may be incomplete.");
-    }
-    const manifests = manifestUris.slice(0, 200).map((uri) => uri.fsPath);
+    const find = async (glob: string, exclude: string, limit: number) => {
+      const uris = await vscode.workspace.findFiles(new vscode.RelativePattern(folder, glob), exclude, limit + 1, token);
+      return { paths: uris.slice(0, limit).map((uri) => uri.fsPath), overflow: uris.length > limit };
+    };
+    const each = async (paths: string[], read: (file: string) => Promise<void>) => {
+      for (const file of paths) {
+        try {
+          await read(file);
+        } catch (e) {
+          errors.push(`Manifest ${file}: ${String(e)}`);
+        }
+      }
+    };
+
     const direct = new Set<string>();
     let enginesNode: string | undefined;
     let requiresPython: string | undefined;
 
-    for (const mf of manifests) {
-      try {
-        const m = await readPackageManifest(mf);
-        for (const n of directDependencyNames(m)) {
-          direct.add(n);
-        }
-        enginesNode = enginesNode ?? m.enginesNode;
-      } catch (e) {
-        errors.push(`Manifest ${mf}: ${String(e)}`);
-      }
+    const manifests = await find("**/package.json", "{**/node_modules/**,**/dist/**,**/out/**,**/build/**}", 200);
+    if (manifests.overflow) {
+      errors.push("Manifest discovery reached its 200-file limit; direct dependency signals may be incomplete.");
     }
+    await each(manifests.paths, async (file) => {
+      const m = await readPackageManifest(file);
+      directDependencyNames(m).forEach((name) => direct.add(name));
+      enginesNode = enginesNode ?? m.enginesNode;
+    });
 
-    const pythonManifests = await vscode.workspace.findFiles(
-      new vscode.RelativePattern(folder, "**/pyproject.toml"),
-      "{**/node_modules/**,**/.venv/**,**/venv/**,**/dist/**}",
-      51,
-      token
-    );
-    for (const uri of pythonManifests.slice(0, 50)) {
-      try {
-        const manifest = await readPythonManifest(uri.fsPath);
-        for (const name of manifest.direct) {
-          direct.add(name);
-        }
-        requiresPython = requiresPython ?? manifest.requiresPython;
-      } catch (e) {
-        errors.push(`Manifest ${uri.fsPath}: ${String(e)}`);
-      }
-    }
+    const pyprojects = await find("**/pyproject.toml", "{**/node_modules/**,**/.venv/**,**/venv/**,**/dist/**}", 50);
+    await each(pyprojects.paths, async (file) => {
+      const manifest = await readPythonManifest(file);
+      manifest.direct.forEach((name) => direct.add(name));
+      requiresPython = requiresPython ?? manifest.requiresPython;
+    });
 
-    const requirementUris = await vscode.workspace.findFiles(
-      new vscode.RelativePattern(folder, "**/requirements*.txt"),
-      "{**/node_modules/**,**/.venv/**,**/venv/**}",
-      21,
-      token
-    );
-    for (const uri of requirementUris.slice(0, 20)) {
-      try {
-        const parsed = await parseRequirementsFile(uri.fsPath);
-        for (const name of parsed.direct) {
-          direct.add(name);
-        }
-      } catch (e) {
-        errors.push(`Manifest ${uri.fsPath}: ${String(e)}`);
-      }
-    }
+    const requirements = await find("**/requirements*.txt", "{**/node_modules/**,**/.venv/**,**/venv/**}", 20);
+    await each(requirements.paths, async (file) => {
+      (await parseRequirementsFile(file)).direct.forEach((name) => direct.add(name));
+    });
 
 // Version-manager pin files (.nvmrc, .python-version) win over engines / requires-python.
     return {
       direct,
-      packageJsonCount: manifests.length,
-      enginesNode: (await readPinnedNodeVersion(folder.uri.fsPath)) ?? enginesNode,
-      requiresPython: (await readPinnedPythonVersion(folder.uri.fsPath)) ?? requiresPython,
+      packageJsonCount: manifests.paths.length,
+      enginesNode: (await readPin(folder.uri.fsPath, [".nvmrc", ".node-version"], /^v?(\d+)(?:\.\d+){0,2}$/)) ?? enginesNode,
+      requiresPython:
+        (await readPin(folder.uri.fsPath, [".python-version", "runtime.txt"], /^(?:python-)?(\d+\.\d+)(?:\.\d+)?$/i)) ??
+        requiresPython,
     };
   }
 
@@ -348,18 +322,17 @@ export class ScanPipeline {
       byKind.set(kind, list);
     }
 
-    const jsKind = firstKind(byKind, ["npm", "pnpm", "yarn", "bun"]);
-    const pyKind = firstKind(byKind, ["uv", "poetry", "pipfile", "requirements"]);
-    const kindsPresent = [...byKind.keys()].filter((kind) => kind !== "bun-binary");
-    if (kindsPresent.filter((kind) => ["npm", "pnpm", "yarn", "bun"].includes(kind)).length > 1) {
-      errors.push(
-        `Multiple JavaScript lockfile types found; scanning by priority: npm, pnpm, Yarn, then Bun.`
-      );
-    }
-    if (kindsPresent.filter((kind) => ["uv", "poetry", "pipfile", "requirements"].includes(kind)).length > 1) {
-      errors.push(
-        `Multiple Python lockfile types found; scanning by priority: uv, Poetry, Pipfile, then pinned requirements.txt.`
-      );
+    const JS_KINDS: LockfileKind[] = ["npm", "pnpm", "yarn", "bun"];
+    const PY_KINDS: LockfileKind[] = ["uv", "poetry", "pipfile", "requirements"];
+    const jsKind = firstKind(byKind, JS_KINDS);
+    const pyKind = firstKind(byKind, PY_KINDS);
+    for (const [label, kinds, priority] of [
+      ["JavaScript", JS_KINDS, "npm, pnpm, Yarn, then Bun"],
+      ["Python", PY_KINDS, "uv, Poetry, Pipfile, then pinned requirements.txt"],
+    ] as const) {
+      if (kinds.filter((kind) => byKind.has(kind)).length > 1) {
+        errors.push(`Multiple ${label} lockfile types found; scanning by priority: ${priority}.`);
+      }
     }
 
     if (!jsKind && !pyKind) {
@@ -406,13 +379,15 @@ export class ScanPipeline {
     cfg: DepRiskConfig
   ): PackageRef[] {
     const refs: PackageRef[] = [];
+    const pyDirect = new Set([...direct].map(normalizePyName));
+    const pyImported = new Set([...imported].map(normalizePyName));
     for (const lp of lockPackages) {
       const ecosystem: Ecosystem = lp.ecosystem ?? "npm";
       const isDirect =
         ecosystem === "pypi"
-          ? hasName(direct, lp.name)
+          ? pyDirect.has(normalizePyName(lp.name))
           : direct.has(lp.name) && isHoistedOrWorkspaceInstall(lp.lockPath, lp.name);
-      const isImported = ecosystem === "pypi" ? hasName(imported, lp.name) : imported.has(lp.name);
+      const isImported = ecosystem === "pypi" ? pyImported.has(normalizePyName(lp.name)) : imported.has(lp.name);
       if (!cfg.scanTransitive && !isDirect && !isImported) {
         continue;
       }
@@ -422,7 +397,6 @@ export class ScanPipeline {
         ecosystem,
         direct: isDirect,
         imported: isImported,
-        usage: isDirect ? "direct" : "transitive",
       });
     }
     return refs;
@@ -471,19 +445,6 @@ function firstKind(byKind: Map<LockfileKind, string[]>, order: LockfileKind[]): 
   return order.find((kind) => byKind.has(kind));
 }
 
-/** Set membership that tolerates PyPI name variants (e.g. `Foo_Bar` vs `foo-bar`). */
-function hasName(names: Set<string>, pkgName: string): boolean {
-  if (names.has(pkgName)) {
-    return true;
-  }
-  for (const name of names) {
-    if (namesMatch(name, pkgName)) {
-      return true;
-    }
-  }
-  return false;
-}
-
 /** One entry per package name: metadata is per name, not per version. */
 function uniqueByName(packages: PackageRef[]): PackageRef[] {
   const seen = new Set<string>();
@@ -499,10 +460,6 @@ function uniqueByName(packages: PackageRef[]): PackageRef[] {
   return out;
 }
 
-function emptyTierCounts(): Record<RiskTier, number> {
-  return Object.fromEntries(TIER_ORDER.map((tier) => [tier, 0])) as Record<RiskTier, number>;
-}
-
 /** Counts results per tier and sorts: tier first, then imported > direct > transitive, then name. */
 function summarize(
   packageCount: number,
@@ -510,23 +467,17 @@ function summarize(
   errors: string[],
   onProgress: ProgressFn
 ): ScanSummary {
-  const byTier = emptyTierCounts();
-  for (const r of results) {
-    byTier[r.tier] += 1;
-  }
+  const byTier = Object.fromEntries(
+    TIER_ORDER.map((tier) => [tier, results.filter((r) => r.tier === tier).length])
+  ) as Record<RiskTier, number>;
 
-  results.sort((a, b) => {
-    const t = TIER_ORDER.indexOf(a.tier) - TIER_ORDER.indexOf(b.tier);
-    if (t !== 0) {
-      return t;
-    }
-    const ua = Number(a.signals.pkg.imported) * 2 + Number(a.signals.pkg.direct);
-    const ub = Number(b.signals.pkg.imported) * 2 + Number(b.signals.pkg.direct);
-    if (ub !== ua) {
-      return ub - ua;
-    }
-    return a.signals.pkg.name.localeCompare(b.signals.pkg.name);
-  });
+  const usage = (r: RiskResult) => Number(r.signals.pkg.imported) * 2 + Number(r.signals.pkg.direct);
+  results.sort(
+    (a, b) =>
+      TIER_ORDER.indexOf(a.tier) - TIER_ORDER.indexOf(b.tier) ||
+      usage(b) - usage(a) ||
+      a.signals.pkg.name.localeCompare(b.signals.pkg.name)
+  );
 
   onProgress("Done", `${results.length} risks`);
   return {
@@ -538,28 +489,12 @@ function summarize(
   };
 }
 
-/** Reads `major.minor` from .python-version or runtime.txt, if present. */
-async function readPinnedPythonVersion(root: string): Promise<string | undefined> {
-  for (const filename of [".python-version", "runtime.txt"]) {
+/** First line of the first existing file in `files` that matches `pattern`; returns capture group 1. */
+async function readPin(root: string, files: string[], pattern: RegExp): Promise<string | undefined> {
+  for (const filename of files) {
     try {
-      const value = (await fs.readFile(path.join(root, filename), "utf8")).trim().split(/\r?\n/)[0] ?? "";
-      const match = value.match(/^(?:python-)?(\d+\.\d+)(?:\.\d+)?$/i);
-      if (match) {
-        return match[1];
-      }
-    } catch {
-      // Optional runtime pin is absent.
-    }
-  }
-  return undefined;
-}
-
-/** Reads the major version from .nvmrc or .node-version, if present. */
-async function readPinnedNodeVersion(root: string): Promise<string | undefined> {
-  for (const filename of [".nvmrc", ".node-version"]) {
-    try {
-      const value = (await fs.readFile(path.join(root, filename), "utf8")).trim();
-      const match = value.match(/^(?:v)?(\d+)(?:\.\d+){0,2}$/);
+      const firstLine = (await fs.readFile(path.join(root, filename), "utf8")).trim().split(/\r?\n/)[0] ?? "";
+      const match = firstLine.match(pattern);
       if (match) {
         return match[1];
       }

@@ -18,11 +18,7 @@ export async function fetchJson<T>(
   url: string,
   init?: RequestInit & { timeoutMs?: number; retries?: number }
 ): Promise<T> {
-  const timeoutMs = init?.timeoutMs ?? 30_000;
-  const retries = init?.retries ?? 2;
-  const { timeoutMs: _timeout, retries: _retries, ...requestInit } = init ?? {};
-  void _timeout;
-  void _retries;
+  const { timeoutMs = 30_000, retries = 2, ...requestInit } = init ?? {};
 
   for (let attempt = 0; attempt <= retries; attempt++) {
     const controller = new AbortController();
@@ -86,7 +82,7 @@ function retryDelayMs(attempt: number, retryAfter?: string | null): number {
   return Math.min(500 * 2 ** attempt, 4_000);
 }
 
-function delay(ms: number): Promise<void> {
+export function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 

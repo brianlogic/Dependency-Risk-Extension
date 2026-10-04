@@ -1,6 +1,7 @@
 // "Ask Agent" flow: build a fix prompt for a risk and hand it to the editor's AI chat.
 import * as vscode from "vscode";
 import type { RiskResult } from "../types";
+import { delay } from "../util/http";
 import { openUrl } from "../util/openUrl";
 import { isDowngrade } from "../util/version";
 
@@ -92,10 +93,6 @@ async function openAgentWithPrompt(prompt: string): Promise<void> {
       // ignore
     }
   }
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /** Modal warning for major bumps and downgrades; true only if the user chooses to proceed. */
