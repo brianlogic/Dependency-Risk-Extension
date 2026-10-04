@@ -7,7 +7,7 @@ function summary(byTier: Partial<ScanSummary["byTier"]>): ScanSummary {
   return {
     scannedAt: Date.now(),
     packageCount: 10,
-    byTier: { critical: 0, high: 0, stale: 0, eol: 0, clear: 0, ...byTier },
+    byTier: { critical: 0, high: 0, stale: 0, eol: 0, ...byTier },
     results: [],
     errors: [],
   };

@@ -7,7 +7,7 @@
  * code is on a path the project loads. Other advisories are high.
  * Stale: no advisories, and either several majors behind latest or no publish
  * inside the inactivity window. The recommended bump for a stale package is latest.
- * Clear: none of the above. The pipeline omits these from the result list.
+ * Nothing matched: returns undefined, so only packages with a risk get a result.
  *
  * `recommendedBump` is the smallest version that clears every advisory,
  * preferring a fix that stays on the current major. It is absent when any
@@ -40,7 +40,7 @@ function usageLabel(pkg: PackageSignals["pkg"]): string {
 }
 
 /**
- * Picks the single tier for one package. Reasons lead with the worst advisory.
+ * Picks the single tier for one package, or undefined when it has no risk. Reasons lead with the worst advisory.
  * A high-or-worse advisory on an imported package is raised to critical; the
  * same advisory on a direct or transitive package stays high.
  */
@@ -48,7 +48,7 @@ export function scorePackage(
   signals: PackageSignals,
   cfg: DepRiskConfig,
   changelogUrl?: string
-): RiskResult {
+): RiskResult | undefined {
   const { pkg, vulns } = signals;
   const orderedVulns = [...vulns].sort(
     (a, b) => severity(b) - severity(a)
@@ -108,14 +108,7 @@ export function scorePackage(
     };
   }
 
-  return {
-    tier: "clear",
-    reasons: [],
-    isMajorBump: false,
-    advisoryIds: [],
-    advisoryUrls: [],
-    signals,
-  };
+  return undefined;
 }
 
 /**

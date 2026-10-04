@@ -1,6 +1,6 @@
 // Colored letter badges on tier/package rows, via a `deprisk:` URI scheme the tree items use as resourceUri.
 import * as vscode from "vscode";
-import { TIER_BADGE, TIER_THEME_COLOR } from "./presentation";
+import { TIER_BADGE, TIER_THEME_COLOR, type DisplayTier } from "./presentation";
 import { TIER_LABEL, type RiskTier } from "../types";
 
 export const DEPRISK_SCHEME = "deprisk";
@@ -41,7 +41,7 @@ export class DepRiskDecorationProvider implements vscode.FileDecorationProvider 
 }
 
 /** Codicon, tinted with the tier color when a tier is given. */
-export function themeIcon(id: string, tier?: RiskTier): vscode.ThemeIcon {
+export function themeIcon(id: string, tier?: DisplayTier): vscode.ThemeIcon {
   if (!tier) {
     return new vscode.ThemeIcon(id);
   }

@@ -2,14 +2,14 @@ import * as vscode from "vscode";
 import { isDowngrade } from "../util/version";
 import { advisoryUrl } from "../osv/urls";
 import { riskResourceUri, themeIcon } from "./decorations";
-import { TIER_ICON_ID, headline, packageGlance, packageTooltip, reasonIcon, usageLabel, worstTier } from "./presentation";
+import { TIER_ICON_ID, headline, type DisplayTier, packageGlance, packageTooltip, reasonIcon, usageLabel, worstTier } from "./presentation";
 import { TIER_LABEL, TIER_ORDER, type RiskResult, type RiskTier, type ScanSummary, type VulnSummary } from "../types";
 
 // Tree structure: Summary / scan-warning / Tier -> Package -> Advisory + Reason rows. Items carry `risk` so commands get it as their argument.
 export type DepRiskTreeItem = SummaryItem | TierItem | PackageItem | AdvisoryItem | ReasonItem | MessageItem;
 
 export class MessageItem extends vscode.TreeItem {
-  constructor(message: string, icon: string, tooltip?: string, tier?: RiskTier) {
+  constructor(message: string, icon: string, tooltip?: string, tier?: DisplayTier) {
     super(message, vscode.TreeItemCollapsibleState.None);
     this.contextValue = "depRisk.message";
     this.iconPath = themeIcon(icon, tier);
@@ -144,7 +144,7 @@ export class DepRiskTreeProvider implements vscode.TreeDataProvider<DepRiskTreeI
     }
 
     if (!element) {
-      const tiers = TIER_ORDER.filter((t) => t !== "clear" && (this.summary!.byTier[t] ?? 0) > 0);
+      const tiers = TIER_ORDER.filter((t) => (this.summary!.byTier[t] ?? 0) > 0);
       const items: DepRiskTreeItem[] = [new SummaryItem(this.summary)];
       if (this.summary.errors.length) {
         items.push(

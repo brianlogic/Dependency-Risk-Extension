@@ -39,7 +39,7 @@ Dependency Version Risk is a VS Code / Cursor extension. It reads a workspace's 
 4. **Select.** Drop git/file/workspace entries, mark direct/imported, honour `scanTransitive` and `maxPackagesPerScan` (direct and imported kept first).
 5. **OSV batch.** `querybatch` returns advisory ids per package version (chunks of 1,000, paginated).
 6. **Registry metadata.** Only for direct, imported or vulnerable packages, once per name, 6 at a time.
-7. **Hydrate and score** (`scoreAll`). Full advisory records are fetched per id (8 at a time), registry signals attached, `scorePackage` assigns a tier. Packages tiered `clear` are dropped.
+7. **Hydrate and score** (`scoreAll`). Full advisory records are fetched per id (8 at a time), registry signals attached, `scorePackage` assigns a tier, or returns nothing for a package with no risk.
 8. **Runtime EOL.** Adds a result if the pinned Node/Python is end-of-life or about to be.
 9. **Summarize.** Count per tier and sort (tier, then imported > direct > transitive, then name).
 

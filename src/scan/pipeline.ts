@@ -280,7 +280,7 @@ export class ScanPipeline {
       const meta = metaByKey.get(packageNameKey(pkg));
       const signals = attachRegistrySignals({ pkg, vulns }, meta?.latest, meta?.lastPublish);
       const scored = scorePackage(signals, cfg, meta?.changelog);
-      if (scored.tier !== "clear") {
+      if (scored) {
         results.push(scored);
       }
     });

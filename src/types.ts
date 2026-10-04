@@ -5,7 +5,7 @@ export function osvEcosystem(ecosystem: Ecosystem): string {
   return ecosystem === "pypi" ? "PyPI" : "npm";
 }
 
-export type RiskTier = "critical" | "high" | "stale" | "eol" | "clear";
+export type RiskTier = "critical" | "high" | "stale" | "eol";
 
 export interface PackageRef {
   name: string;
@@ -73,12 +73,11 @@ export interface ScanSummary {
 }
 
 // Tiers from most to least severe; the order drives sorting and display.
-export const TIER_ORDER: RiskTier[] = ["critical", "high", "stale", "eol", "clear"];
+export const TIER_ORDER: RiskTier[] = ["critical", "high", "stale", "eol"];
 
 export const TIER_LABEL: Record<RiskTier, string> = {
   critical: "Critical",
   high: "High",
   stale: "Stale",
   eol: "EOL-adjacent",
-  clear: "Clear",
 };

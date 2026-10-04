@@ -160,7 +160,7 @@ function overviewBody(summary: ScanSummary): string {
     })
     .join("");
 
-  const legend = TIER_ORDER.filter((tier) => tier !== "clear" && summary.byTier[tier] > 0)
+  const legend = TIER_ORDER.filter((tier) => summary.byTier[tier] > 0)
     .map(
       (tier) =>
         `<span><span class="swatch" style="background:var(--${cssVar(tier)})"></span>${summary.byTier[tier]} ${TIER_LABEL[tier]}</span>`

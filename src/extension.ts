@@ -327,7 +327,7 @@ function runScan(folder: vscode.WorkspaceFolder, force: boolean): Thenable<void>
 
 /** Status bar: per-tier counts with icons; warning icon when some sources failed. */
 function updateStatus(summary: ScanSummary): void {
-  const parts = TIER_ORDER.filter((tier) => tier !== "clear" && summary.byTier[tier]).map(
+  const parts = TIER_ORDER.filter((tier) => summary.byTier[tier]).map(
     (tier) => `$(${TIER_ICON_ID[tier]})${summary.byTier[tier]}`
   );
   const icon = summary.errors.length ? "$(warning)" : "$(shield)";
