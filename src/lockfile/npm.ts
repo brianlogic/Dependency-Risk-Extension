@@ -1,13 +1,6 @@
 import * as fs from "fs/promises";
 import * as path from "path";
-
-export interface LockPackage {
-  name: string;
-  version: string;
-  /** Dependency path key from lockfile (e.g. node_modules/lodash). */
-  lockPath: string;
-  ecosystem?: import("../types").Ecosystem;
-}
+import type { LockPackage } from "./types";
 
 export interface ManifestDeps {
   dependencies: Record<string, string>;
@@ -270,33 +263,4 @@ export async function findLockfiles(workspaceRoot: string): Promise<string[]> {
 
   await walk(workspaceRoot, 0);
   return found;
-}
-
-export async function findPackageJsonFiles(workspaceRoot: string): Promise<string[]> {
-  // Root + one level of workspaces packages/* — keep scan bounded
-  const roots = [path.join(workspaceRoot, "package.json")];
-  const pkgDirs = ["packages", "apps", "services"];
-  for (const dir of pkgDirs) {
-    const base = path.join(workspaceRoot, dir);
-    try {
-      const entries = await fs.readdir(base, { withFileTypes: true });
-      for (const e of entries) {
-        if (e.isDirectory()) {
-          roots.push(path.join(base, e.name, "package.json"));
-        }
-      }
-    } catch {
-      // no such dir
-    }
-  }
-  const existing: string[] = [];
-  for (const p of roots) {
-    try {
-      await fs.access(p);
-      existing.push(p);
-    } catch {
-      // skip
-    }
-  }
-  return existing;
 }

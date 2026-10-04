@@ -2,9 +2,9 @@ import * as vscode from "vscode";
 import { getConfig } from "./config";
 import { applySafeFix } from "./commands/applySafeFix";
 import { askAgentFix, copyAgentPrompt } from "./commands/askAgentFix";
-import { PackageJsonCodeActions } from "./diagnostics/PackageJsonCodeActions";
-import { PackageJsonDiagnostics } from "./diagnostics/PackageJsonDiagnostics";
-import { PythonDiagnostics } from "./diagnostics/PythonDiagnostics";
+import { ManifestCodeActions } from "./diagnostics/ManifestCodeActions";
+import { ManifestDiagnostics } from "./diagnostics/ManifestDiagnostics";
+import { npmManifest, pythonManifest, WORKSPACE_WATCH_GLOB } from "./diagnostics/manifests";
 import { openUrl } from "./util/openUrl";
 import { ScanPipeline } from "./scan/pipeline";
 import { DepRiskDecorationProvider } from "./tree/decorations";
@@ -24,8 +24,8 @@ let activeFolder: vscode.WorkspaceFolder | undefined;
 let tree: DepRiskTreeProvider;
 let overview: OverviewView;
 let decorations: DepRiskDecorationProvider;
-let diagnostics: PackageJsonDiagnostics;
-let pythonDiagnostics: PythonDiagnostics;
+let diagnostics: ManifestDiagnostics;
+let pythonDiagnostics: ManifestDiagnostics;
 let lockWatcher: vscode.FileSystemWatcher | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
@@ -42,8 +42,8 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.window.registerFileDecorationProvider(decorations)
   );
 
-  diagnostics = new PackageJsonDiagnostics();
-  pythonDiagnostics = new PythonDiagnostics();
+  diagnostics = new ManifestDiagnostics(npmManifest);
+  pythonDiagnostics = new ManifestDiagnostics(pythonManifest);
 
   statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
   statusBar.command = "depRisk.show";
@@ -64,7 +64,7 @@ export function activate(context: vscode.ExtensionContext): void {
         { language: "toml", pattern: "**/pyproject.toml" },
         { pattern: "**/pyproject.toml" },
       ],
-      new PackageJsonCodeActions([diagnostics, pythonDiagnostics]),
+      new ManifestCodeActions([diagnostics, pythonDiagnostics]),
       { providedCodeActionKinds: [vscode.CodeActionKind.QuickFix] }
     ),
     vscode.commands.registerCommand("depRisk.show", async () => {
@@ -175,7 +175,7 @@ async function bindWorkspace(): Promise<void> {
   lockWatcher = vscode.workspace.createFileSystemWatcher(
     new vscode.RelativePattern(
       folder,
-      "{package.json,**/package.json,**/package-lock.json,**/npm-shrinkwrap.json,**/pnpm-lock.yaml,**/yarn.lock,**/bun.lock,**/uv.lock,**/poetry.lock,**/Pipfile.lock,**/requirements*.txt,**/pyproject.toml,.nvmrc,.node-version,.python-version,runtime.txt}"
+      WORKSPACE_WATCH_GLOB
     )
   );
   const schedule = debounce(() => {

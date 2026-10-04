@@ -1,9 +1,10 @@
 import * as vscode from "vscode";
 import { excerptDetails, readingLinks } from "../osv/urls";
-import { TIER_LABEL, type RiskResult, type RiskTier, type VulnSummary } from "../types";
+import { TIER_LABEL, type RiskResult, type VulnSummary } from "../types";
 import { openUrl } from "../util/openUrl";
 import { isDowngrade } from "../util/version";
 import { packageGlance, usageLabel } from "./presentation";
+import { cssVar, escapeAttr, escapeHtml } from "./webviewHtml";
 
 /**
  * Editor tab that lists every advisory on a package, with click-through to the source.
@@ -221,27 +222,3 @@ function linkButton(url: string, label: string, kind?: "secondary"): string {
   return `<button type="button" class="btn${kind ? ` ${kind}` : ""}" data-url="${escapeAttr(url)}">${escapeHtml(label)}</button>`;
 }
 
-function cssVar(tier: RiskTier): string {
-  return tier === "critical" ? "crit" : tier;
-}
-
-function escapeHtml(value: string): string {
-  return value.replace(/[&<>"']/g, (char) => {
-    switch (char) {
-      case "&":
-        return "&amp;";
-      case "<":
-        return "&lt;";
-      case ">":
-        return "&gt;";
-      case '"':
-        return "&quot;";
-      default:
-        return "&#39;";
-    }
-  });
-}
-
-function escapeAttr(value: string): string {
-  return escapeHtml(value);
-}

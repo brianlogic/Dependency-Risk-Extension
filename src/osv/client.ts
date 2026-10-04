@@ -1,5 +1,6 @@
 import { CVSS20, CVSS30, CVSS31, CVSS40 } from "@pandatix/js-cvss";
 import { fetchJson, mapPool } from "../util/http";
+import { packageVersionKey } from "../util/packageKey";
 import { nextPatchAfter } from "../util/version";
 import type { RiskCache } from "../cache/store";
 import { osvEcosystem, type Ecosystem, type PackageRef, type VulnSummary } from "../types";
@@ -224,7 +225,7 @@ export class OsvClient {
     const toQuery: PackageRef[] = [];
 
     for (const pkg of packages) {
-      const key = `${pkg.ecosystem}:${pkg.name}@${pkg.version}`;
+      const key = packageVersionKey(pkg);
       if (!opts?.force) {
         const hit = this.cache.getPackageHit(pkg.name, pkg.version, undefined, pkg.ecosystem);
         if (hit) {
@@ -255,7 +256,7 @@ export class OsvClient {
           modifiedById,
           pkg.ecosystem
         );
-        result.set(`${pkg.ecosystem}:${pkg.name}@${pkg.version}`, vulns);
+        result.set(packageVersionKey(pkg), vulns);
       });
     }
 

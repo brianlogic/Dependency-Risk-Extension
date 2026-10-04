@@ -1,5 +1,5 @@
 import * as fs from "fs/promises";
-import type { LockPackage } from "./npm";
+import type { LockPackage } from "./types";
 
 /**
  * Minimal pnpm-lock.yaml parser for packages section (lockfile v5.4–v9).

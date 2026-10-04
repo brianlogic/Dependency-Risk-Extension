@@ -1,18 +1,17 @@
 import * as fs from "fs/promises";
-import type { LockPackage } from "./npm";
+import type { LockPackage } from "./types";
 
 export interface PythonManifest {
   direct: Set<string>;
   requiresPython?: string;
 }
 
-export async function parseUvLockfile(lockfilePath: string): Promise<LockPackage[]> {
+async function parseTomlLockfile(lockfilePath: string): Promise<LockPackage[]> {
   return parseTomlPackageBlocks(await fs.readFile(lockfilePath, "utf8"));
 }
 
-export async function parsePoetryLockfile(lockfilePath: string): Promise<LockPackage[]> {
-  return parseTomlPackageBlocks(await fs.readFile(lockfilePath, "utf8"));
-}
+export const parseUvLockfile = parseTomlLockfile;
+export const parsePoetryLockfile = parseTomlLockfile;
 
 export async function parsePipfileLock(lockfilePath: string): Promise<LockPackage[]> {
   const json = JSON.parse(await fs.readFile(lockfilePath, "utf8")) as Record<

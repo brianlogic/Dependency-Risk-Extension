@@ -7,7 +7,7 @@ export interface RiskLookup {
   findRiskAt(document: vscode.TextDocument, range: vscode.Range): RiskResult | undefined;
 }
 
-export class PackageJsonCodeActions implements vscode.CodeActionProvider {
+export class ManifestCodeActions implements vscode.CodeActionProvider {
   constructor(private readonly lookups: RiskLookup[]) {}
 
   provideCodeActions(

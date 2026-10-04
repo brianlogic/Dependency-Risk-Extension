@@ -1,5 +1,5 @@
 import * as fs from "fs/promises";
-import type { LockPackage } from "./npm";
+import type { LockPackage } from "./types";
 
 /** Parse classic yarn.lock (v1) or Yarn Berry (v2+) lockfiles. */
 export async function parseYarnLockfile(lockfilePath: string): Promise<LockPackage[]> {

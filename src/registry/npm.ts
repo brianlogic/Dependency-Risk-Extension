@@ -1,15 +1,16 @@
 import { fetchJson } from "../util/http";
 import type { RiskCache } from "../cache/store";
+import {
+  REGISTRY_META_TTL_MS,
+  normalizeRepoUrl,
+  registryChangelogUrl,
+  type PackageRegistryMeta,
+  type RegistryClient,
+} from "./meta";
 
 const REGISTRY = "https://registry.npmjs.org";
-const META_TTL_MS = 12 * 60 * 60 * 1000;
 
-export interface NpmPackageMeta {
-  latest: string;
-  lastPublish?: string;
-  homepage?: string;
-  repositoryUrl?: string;
-}
+export type NpmPackageMeta = PackageRegistryMeta;
 
 interface NpmRegistryResponse {
   "dist-tags"?: { latest?: string };
@@ -29,26 +30,11 @@ function encodeNpmName(name: string): string {
   return encodeURIComponent(name);
 }
 
-function normalizeRepoUrl(repo: NpmRegistryResponse["repository"]): string | undefined {
-  if (!repo) {
-    return undefined;
-  }
-  const url = typeof repo === "string" ? repo : repo.url;
-  if (!url) {
-    return undefined;
-  }
-  return url
-    .replace(/^git\+/, "")
-    .replace(/^ssh:\/\/git@/, "https://")
-    .replace(/^git@github\.com:/, "https://github.com/")
-    .replace(/\.git$/, "");
-}
-
-export class NpmRegistry {
+export class NpmRegistry implements RegistryClient {
   constructor(private readonly cache: RiskCache) {}
 
   async getMeta(name: string, opts?: { force?: boolean }): Promise<NpmPackageMeta | undefined> {
-    const cached = opts?.force ? undefined : this.cache.getNpmMeta(name, META_TTL_MS);
+    const cached = opts?.force ? undefined : this.cache.getNpmMeta(name, REGISTRY_META_TTL_MS);
     if (cached) {
       const raw = cached.raw as NpmRegistryResponse;
       return {
@@ -78,15 +64,6 @@ export class NpmRegistry {
   }
 
   changelogUrl(name: string, meta?: NpmPackageMeta): string {
-    if (meta?.repositoryUrl && /github\.com|gitlab\.com/i.test(meta.repositoryUrl)) {
-      return `${meta.repositoryUrl}/releases`;
-    }
-    if (meta?.homepage) {
-      return meta.homepage;
-    }
-    if (meta?.repositoryUrl) {
-      return meta.repositoryUrl;
-    }
-    return `https://www.npmjs.com/package/${name}?activeTab=versions`;
+    return registryChangelogUrl(meta, `https://www.npmjs.com/package/${name}?activeTab=versions`);
   }
 }

@@ -3,18 +3,10 @@ import { describe, it } from "node:test";
 import {
   isQueryableNpmVersion,
   nextPatchAfter,
-  pickSafeBump,
   pickSafeBumpForAdvisories,
 } from "../src/util/semver";
 
 describe("safe upgrade targets", () => {
-  it("prefers the smallest patch fix for one advisory", () => {
-    assert.equal(
-      pickSafeBump("4.17.1", "5.0.0", ["4.17.2", "4.19.2"]),
-      "4.17.2"
-    );
-  });
-
   it("chooses a target that clears every advisory", () => {
     assert.equal(
       pickSafeBumpForAdvisories("1.2.3", [

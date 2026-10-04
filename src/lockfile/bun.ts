@@ -1,6 +1,6 @@
 import { parse } from "jsonc-parser";
 import * as fs from "fs/promises";
-import type { LockPackage } from "./npm";
+import type { LockPackage } from "./types";
 
 /**
  * Parse text bun.lock (Bun 1.2+ JSONC). Binary bun.lockb is rejected.

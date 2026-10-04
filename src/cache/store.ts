@@ -1,5 +1,6 @@
 import * as fs from "fs/promises";
 import * as path from "path";
+import { packageVersionKey } from "../util/packageKey";
 
 /**
  * Persistent cache in a hidden workspace folder (.dep-risk/cache.json).
@@ -119,7 +120,7 @@ export class RiskCache {
     ecosystem = "npm"
   ): { vulnIds: string[]; modifiedById: Record<string, string> } | undefined {
     const row =
-      this.data.packageHits[`${ecosystem}:${name}@${version}`] ??
+      this.data.packageHits[packageVersionKey({ ecosystem, name, version })] ??
       (ecosystem === "npm" ? this.data.packageHits[`${name}@${version}`] : undefined);
     if (!row || Date.now() - row.cachedAt > maxAgeMs) {
       return undefined;
@@ -134,7 +135,7 @@ export class RiskCache {
     modifiedById: Record<string, string>,
     ecosystem = "npm"
   ): void {
-    this.data.packageHits[`${ecosystem}:${name}@${version}`] = {
+    this.data.packageHits[packageVersionKey({ ecosystem, name, version })] = {
       vulnIds,
       modifiedById,
       cachedAt: Date.now(),
@@ -167,19 +168,27 @@ export class RiskCache {
   }
 
   getNpmMeta(name: string, maxAgeMs: number): { latest: string; modified?: string; raw: unknown } | undefined {
-    const row = this.data.npmMeta[name];
-    if (!row || Date.now() - row.cachedAt > maxAgeMs) {
-      return undefined;
-    }
-    try {
-      return { latest: row.latest, modified: row.modified, raw: JSON.parse(row.json) };
-    } catch {
-      return undefined;
-    }
+    return this.getRegistryMeta(this.data.npmMeta, name, maxAgeMs);
   }
 
   getPypiMeta(name: string, maxAgeMs: number): { latest: string; modified?: string; raw: unknown } | undefined {
-    const row = this.data.pypiMeta[name];
+    return this.getRegistryMeta(this.data.pypiMeta, name, maxAgeMs);
+  }
+
+  setPypiMeta(name: string, latest: string, modified: string | undefined, raw: unknown): void {
+    this.setRegistryMeta(this.data.pypiMeta, name, latest, modified, raw);
+  }
+
+  setNpmMeta(name: string, latest: string, modified: string | undefined, raw: unknown): void {
+    this.setRegistryMeta(this.data.npmMeta, name, latest, modified, raw);
+  }
+
+  private getRegistryMeta(
+    table: CacheFile["npmMeta"],
+    name: string,
+    maxAgeMs: number
+  ): { latest: string; modified?: string; raw: unknown } | undefined {
+    const row = table[name];
     if (!row || Date.now() - row.cachedAt > maxAgeMs) {
       return undefined;
     }
@@ -190,18 +199,14 @@ export class RiskCache {
     }
   }
 
-  setPypiMeta(name: string, latest: string, modified: string | undefined, raw: unknown): void {
-    this.data.pypiMeta[name] = {
-      latest,
-      modified,
-      json: JSON.stringify(raw),
-      cachedAt: Date.now(),
-    };
-    this.scheduleSave();
-  }
-
-  setNpmMeta(name: string, latest: string, modified: string | undefined, raw: unknown): void {
-    this.data.npmMeta[name] = {
+  private setRegistryMeta(
+    table: CacheFile["npmMeta"],
+    name: string,
+    latest: string,
+    modified: string | undefined,
+    raw: unknown
+  ): void {
+    table[name] = {
       latest,
       modified,
       json: JSON.stringify(raw),

@@ -1,11 +1,12 @@
 import * as vscode from "vscode";
+import { npmManifest, pythonManifest } from "../diagnostics/manifests";
 import type { RiskResult } from "../types";
 import { confirmRiskyBump } from "./askAgentFix";
 import { rewriteNpmManifest, rewritePythonManifest, type TextEdit } from "./rewriteSpec";
 
 const GLOBS = {
-  npm: { include: "**/package.json", exclude: "**/node_modules/**" },
-  pypi: { include: "{**/requirements*.txt,**/pyproject.toml}", exclude: "{**/node_modules/**,**/.venv/**,**/venv/**}" },
+  npm: { include: npmManifest.include, exclude: npmManifest.exclude },
+  pypi: { include: pythonManifest.include, exclude: pythonManifest.exclude },
 };
 
 export async function applySafeFix(risk: RiskResult): Promise<void> {

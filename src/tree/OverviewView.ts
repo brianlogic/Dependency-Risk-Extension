@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { headline, packageGlance } from "./presentation";
+import { cssVar, escapeAttr, escapeHtml } from "./webviewHtml";
 import { TIER_LABEL, TIER_ORDER, type RiskResult, type RiskTier, type ScanSummary } from "../types";
 
 export class OverviewView implements vscode.WebviewViewProvider {
@@ -193,27 +194,3 @@ function packageRow(risk: RiskResult): string {
   </button>`;
 }
 
-function cssVar(tier: RiskTier): string {
-  return tier === "critical" ? "crit" : tier;
-}
-
-function escapeHtml(value: string): string {
-  return value.replace(/[&<>"']/g, (char) => {
-    switch (char) {
-      case "&":
-        return "&amp;";
-      case "<":
-        return "&lt;";
-      case ">":
-        return "&gt;";
-      case '"':
-        return "&quot;";
-      default:
-        return "&#39;";
-    }
-  });
-}
-
-function escapeAttr(value: string): string {
-  return escapeHtml(value);
-}

@@ -66,11 +66,6 @@ export interface RiskResult {
   signals: PackageSignals;
 }
 
-export interface ScanProgress {
-  phase: string;
-  detail?: string;
-}
-
 export interface ScanSummary {
   scannedAt: number;
   packageCount: number;
@@ -87,12 +82,4 @@ export const TIER_LABEL: Record<RiskTier, string> = {
   stale: "Stale",
   eol: "EOL-adjacent",
   clear: "Clear",
-};
-
-export const TIER_ICON: Record<RiskTier, string> = {
-  critical: "flame",
-  high: "warning",
-  stale: "history",
-  eol: "calendar",
-  clear: "pass",
 };
