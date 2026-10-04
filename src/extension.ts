@@ -92,8 +92,14 @@ export function activate(context: vscode.ExtensionContext): void {
         await askAgentFix(risk);
       }
     }),
-    vscode.commands.registerCommand("depRisk.applySafeFix", async (item?: { risk: RiskResult }) => {
-      const risk = item?.risk ?? (await pickRisk());
+    vscode.commands.registerCommand("depRisk.applySafeFix", async (item?: { risk?: RiskResult; name?: string; ecosystem?: string }) => {
+      // Tooltip links pass only name + ecosystem.
+      const risk =
+        item?.risk ??
+        tree.getSummary()?.results.find(
+          (r) => r.signals.pkg.name === item?.name && r.signals.pkg.ecosystem === item?.ecosystem
+        ) ??
+        (await pickRisk());
       if (risk) {
         await applySafeFix(risk);
       }

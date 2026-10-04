@@ -29,6 +29,11 @@ export interface ManifestConfig {
   nameAtOffset(text: string, fileName: string, offset: number): string | undefined;
 }
 
+/** True when `version` appears as a whole version token in the dependency's manifest text. */
+function declaresVersion(text: string, version: string): boolean {
+  return new RegExp(`(?<![\\w.])${version.replace(/[.+]/g, "\\$&")}(?![\\w.])`).test(text);
+}
+
 /** Diagnostics on dependency lines of one ecosystem's manifests (direct deps only). */
 export class ManifestDiagnostics implements vscode.Disposable {
   private readonly collection: vscode.DiagnosticCollection;
@@ -92,10 +97,18 @@ export class ManifestDiagnostics implements vscode.Disposable {
           const target = risk.recommendedBump
             ? ` → ${risk.recommendedBump}${isDowngrade(risk) ? " (downgrade)" : ""}`
             : "";
+          // Scans read the lockfile, so after Apply Safe Fix the finding persists until the user installs.
+          const pendingInstall = risk.recommendedBump
+            ? declaresVersion(text.slice(offsets.start, offsets.end), risk.recommendedBump)
+            : false;
           const diag = new vscode.Diagnostic(
             new vscode.Range(document.positionAt(offsets.start), document.positionAt(offsets.end)),
-            `[${risk.tier}] ${name}@${risk.signals.pkg.version}${target}: ${risk.reasons[0] ?? risk.tier}`,
-            SEVERITY[risk.tier] ?? vscode.DiagnosticSeverity.Information
+            pendingInstall
+              ? `[${risk.tier}] ${name}@${risk.signals.pkg.version} is still locked; manifest already targets ${risk.recommendedBump}. Run your install command to refresh the lockfile.`
+              : `[${risk.tier}] ${name}@${risk.signals.pkg.version}${target}: ${risk.reasons[0] ?? risk.tier}`,
+            pendingInstall
+              ? vscode.DiagnosticSeverity.Information
+              : (SEVERITY[risk.tier] ?? vscode.DiagnosticSeverity.Information)
           );
           diag.source = "Dep Risk";
           diag.code = risk.advisoryIds[0] ?? risk.tier;

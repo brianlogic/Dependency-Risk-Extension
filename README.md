@@ -73,6 +73,6 @@ npm install
 npm run verify
 ```
 
-`verify` typechecks, runs the tests, and compiles the extension. Then press F5 and use the fixture under `fixtures/sample-app`, or open any folder that has a lockfile.
+`verify` typechecks, runs the tests, and compiles the extension. Then press F5 and use the fixture under `fixtures/sample-app` (`npm run fixture:reset` restores it after you apply fixes or install), or open any folder that has a lockfile.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for how the code is organized.

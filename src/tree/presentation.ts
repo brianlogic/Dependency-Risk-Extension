@@ -92,6 +92,11 @@ export function packageTooltip(risk: RiskResult): string {
       `\n**Fix** → \`${risk.recommendedBump}\`${risk.isMajorBump ? "  $(alert) major" : ""}${isDowngrade(risk) ? "  $(alert) downgrade" : ""}`
     );
   }
+  if (risk.recommendedBump && risk.tier !== "eol") {
+    // Command link needs only the key; the handler resolves the risk from the latest scan.
+    const args = encodeURIComponent(JSON.stringify([{ name: pkg.name, ecosystem: pkg.ecosystem }]));
+    lines.push(`\n[$(wrench) Apply Safe Fix](command:depRisk.applySafeFix?${args} "Rewrite the manifest to ${risk.recommendedBump}")`);
+  }
   lines.push(`\n${packageGlance(risk)}`);
   if (top?.summary) {
     lines.push(`\n${top.summary}`);

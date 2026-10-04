@@ -60,6 +60,8 @@ export async function applySafeFix(risk: RiskResult): Promise<void> {
   }
   await vscode.workspace.applyEdit(edit);
   void vscode.window.showInformationMessage(
-    `Updated ${name} to ${target} in ${touched.join(", ")}. Run your install command to refresh the lockfile.`
+    `Updated ${name} to ${target} in ${touched.join(", ")}. The warning stays until you run ${
+      ecosystem === "npm" ? "your install command (e.g. npm install)" : "your install/lock command (e.g. pip install -r requirements.txt, uv lock)"
+    } to refresh the lockfile; Dep Risk then rescans automatically.`
   );
 }

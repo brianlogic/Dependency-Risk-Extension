@@ -36,6 +36,10 @@ export class RiskDetailView {
         void openUrl(message.url);
         return;
       }
+      if (message.type === "applySafeFix") {
+        void vscode.commands.executeCommand("depRisk.applySafeFix", { risk: this.risk });
+        return;
+      }
       if (message.type === "askAgent") {
         void vscode.commands.executeCommand("depRisk.askAgentFix", { risk: this.risk });
       }
@@ -87,7 +91,7 @@ function renderDetail(webview: vscode.Webview, risk: RiskResult): string {
   const ask =
     risk.tier === "eol"
       ? ""
-      : `<button type="button" class="secondary" data-action="ask">Ask Agent to Upgrade + Fix</button>`;
+      : `${risk.recommendedBump ? `<button type="button" data-action="safeFix">Apply Safe Fix</button>` : ""}<button type="button" class="secondary" data-action="ask">Ask Agent to Upgrade + Fix</button>`;
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -183,6 +187,10 @@ function renderDetail(webview: vscode.Webview, risk: RiskResult): string {
       const target = event.target.closest("[data-url], [data-action]");
       if (!target) { return; }
       event.preventDefault();
+      if (target.dataset.action === "safeFix") {
+        vscode.postMessage({ type: "applySafeFix" });
+        return;
+      }
       if (target.dataset.action === "ask") {
         vscode.postMessage({ type: "askAgent" });
         return;

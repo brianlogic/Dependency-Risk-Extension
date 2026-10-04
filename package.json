@@ -228,6 +228,7 @@
     "watch": "node esbuild.js --watch",
     "check": "tsc --noEmit",
     "test": "tsx --test test/**/*.test.ts",
+    "fixture:reset": "git checkout -- fixtures/sample-app && git clean -fdx fixtures/sample-app",
     "verify": "npm run check && npm test && npm run compile",
     "package": "vsce package --no-dependencies",
     "publish": "vsce publish --no-dependencies"
