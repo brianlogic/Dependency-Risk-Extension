@@ -3,7 +3,7 @@
  * package with an advisory is never also marked stale.
  *
  * Critical: a public exploit, CVSS >= 9, or a CRITICAL label. A high-severity
- * advisory on a package the workspace imports is also critical, because that
+ * (>= 7) advisory on a package the workspace imports is also critical, because that
  * code is on a path the project loads. Other advisories are high.
  * Stale: no advisories, and either several majors behind latest or no publish
  * inside the inactivity window. The recommended bump for a stale package is latest.
@@ -22,56 +22,11 @@ import { isMajorBump, majorsBehind, pickSafeBumpForAdvisories } from "../util/ve
 import type { DepRiskConfig } from "../config";
 import type { PackageSignals, RiskResult, VulnSummary } from "../types";
 
-/** Exploit, CVSS >= 9, or an explicit CRITICAL label. A HIGH label with a lower score is not critical. */
-function isCriticalVuln(v: VulnSummary): boolean {
-  return v.hasPublicExploit || (v.cvssScore ?? 0) >= 9 || v.severity === "CRITICAL";
-}
+const LABEL_SCORE: Record<string, number> = { CRITICAL: 9, HIGH: 7, MODERATE: 4, LOW: 1 };
 
-/** HIGH label, whatever the score. With no label, a score in [7, 9); 9 and above is critical. */
-function isHighVuln(v: VulnSummary): boolean {
-  if (v.severity === "HIGH") {
-    return true;
-  }
-  const score = v.cvssScore ?? 0;
-  return score >= 7 && score < 9;
-}
-
-/** Sort weight so the most dangerous advisory is listed first (public exploit > CVSS > label). */
-function vulnerabilityRank(vulnerability: VulnSummary): number {
-  if (vulnerability.hasPublicExploit) {
-    return 100;
-  }
-  if (vulnerability.cvssScore != null) {
-    return vulnerability.cvssScore * 10;
-  }
-  switch (vulnerability.severity) {
-    case "CRITICAL":
-      return 90;
-    case "HIGH":
-      return 70;
-    case "MODERATE":
-      return 40;
-    case "LOW":
-      return 10;
-    default:
-      return 0;
-  }
-}
-
-/** Shared fields of an advisory result; only the tier and the reason lines differ. */
-function advisoryResult(
-  tier: "critical" | "high",
-  reasons: Array<string | undefined>,
-  shared: Pick<
-    RiskResult,
-    "recommendedBump" | "isMajorBump" | "changelogUrl" | "advisoryIds" | "advisoryUrls" | "signals"
-  >
-): RiskResult {
-  return {
-    tier,
-    reasons: reasons.filter((reason): reason is string => !!reason),
-    ...shared,
-  };
+/** One 0-10 severity: a public exploit is 10, otherwise the higher of the CVSS score and the label's floor. */
+function severity(v: VulnSummary): number {
+  return v.hasPublicExploit ? 10 : Math.max(v.cvssScore ?? 0, LABEL_SCORE[v.severity ?? ""] ?? 0);
 }
 
 function usageLabel(pkg: PackageSignals["pkg"]): string {
@@ -96,7 +51,7 @@ export function scorePackage(
 ): RiskResult {
   const { pkg, vulns } = signals;
   const orderedVulns = [...vulns].sort(
-    (a, b) => vulnerabilityRank(b) - vulnerabilityRank(a)
+    (a, b) => severity(b) - severity(a)
   );
   const advisoryIds = vulns.map((v) => v.id);
   const advisoryUrls = vulns.map(advisoryUrl);
@@ -109,34 +64,19 @@ export function scorePackage(
   const shared = { recommendedBump, isMajorBump: major, changelogUrl, advisoryIds, advisoryUrls, signals };
 
   if (vulns.length > 0) {
-    const criticalHits = orderedVulns.filter(isCriticalVuln);
-    const highOnImported =
-      pkg.imported && orderedVulns.some((v) => isCriticalVuln(v) || isHighVuln(v));
-
-    if (criticalHits.length > 0 || highOnImported) {
-      const top = criticalHits[0] ?? orderedVulns.find(isHighVuln) ?? orderedVulns[0];
-      return advisoryResult(
-        "critical",
-        [
-          top.summary || `${top.id} affects ${pkg.name}@${pkg.version}`,
-          top.hasPublicExploit ? "Public exploit references found" : undefined,
-          top.cvssScore != null ? `CVSS ${top.cvssScore}` : top.severity,
-          `Usage: ${usageLabel(pkg)}`,
-        ],
-        shared
-      );
-    }
-
     const top = orderedVulns[0];
-    return advisoryResult(
-      "high",
-      [
+    const topScore = severity(top);
+    const tier = topScore >= 9 || (pkg.imported && topScore >= 7) ? "critical" : "high";
+    return {
+      tier,
+      reasons: [
         top.summary || `${top.id} affects ${pkg.name}@${pkg.version}`,
-        top.severity && top.severity !== "UNKNOWN" ? `Severity ${top.severity}` : undefined,
+        top.hasPublicExploit ? "Public exploit references found" : undefined,
+        top.cvssScore != null ? `CVSS ${top.cvssScore}` : top.severity !== "UNKNOWN" ? top.severity : undefined,
         `Usage: ${usageLabel(pkg)}`,
-      ],
-      shared
-    );
+      ].filter((reason): reason is string => !!reason),
+      ...shared,
+    };
   }
 
   const staleReasons: string[] = [];
