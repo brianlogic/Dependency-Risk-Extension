@@ -114,7 +114,7 @@ export async function confirmRiskyBump(risk: RiskResult): Promise<boolean> {
   return choice === proceed;
 }
 
-/** Runtime (EOL) risks just open the EOL page since no single package fixes them; others confirm then open the agent. */
+/** Runtime (EOL) risks just open the EOL page since no single package fixes them; others open the agent (confirming first only for a downgrade). */
 export async function askAgentFix(risk: RiskResult): Promise<void> {
   if (risk.tier === "eol") {
     const open = "Open EOL page";
@@ -130,7 +130,8 @@ export async function askAgentFix(risk: RiskResult): Promise<void> {
 
   const prompt = buildAgentPrompt(risk);
 
-  if (!(await confirmRiskyBump(risk))) {
+  // A major bump is the point of asking the agent (its prompt covers breaking changes), so only a downgrade confirms.
+  if (isDowngrade(risk) && !(await confirmRiskyBump(risk))) {
     return;
   }
 

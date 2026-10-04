@@ -67,7 +67,7 @@ After a scan, `runScan` fans out to: `DepRiskTreeProvider` (sidebar and Explorer
 1. A squiggle, tree row or command palette entry reaches a `depRisk.*` command (`pickRisk` is the fallback picker).
 2. `ManifestCodeActions` offers three quick fixes per risk: Apply Safe Fix, Ask Agent, Open Advisory/Changelog. They only call commands.
 3. **Apply Safe Fix** (`commands/applySafeFix.ts`): `confirmRiskyBump` (modal for major bumps and downgrades) -> `rewriteNpmManifest` / `rewritePythonManifest` -> one `WorkspaceEdit` (undoable). Lockfiles are not touched.
-4. **Ask Agent**: `buildAgentPrompt` -> `confirmRiskyBump` -> copy to clipboard, open the first available chat command, paste.
+4. **Ask Agent**: `buildAgentPrompt` -> `confirmRiskyBump` (downgrades only) -> copy to clipboard, open the first available chat command, paste.
 
 ## Limits and decisions
 
