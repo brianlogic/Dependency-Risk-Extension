@@ -159,18 +159,6 @@ export function lockPathDepth(lockPath: string): number {
 export const LOCKFILE_DISCOVERY_LIMIT = 50;
 export const LOCKFILE_WALK_DEPTH = 8;
 
-const LOCKFILE_NAMES = new Set([
-  "package-lock.json",
-  "npm-shrinkwrap.json",
-  "pnpm-lock.yaml",
-  "yarn.lock",
-  "bun.lock",
-  "bun.lockb",
-  "uv.lock",
-  "poetry.lock",
-  "Pipfile.lock",
-]);
-
 const SKIP_DIRS = new Set([
   "node_modules",
   ".git",

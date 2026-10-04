@@ -5,6 +5,7 @@ import { askAgentFix, copyAgentPrompt } from "./commands/askAgentFix";
 import { PackageJsonCodeActions } from "./diagnostics/PackageJsonCodeActions";
 import { PackageJsonDiagnostics } from "./diagnostics/PackageJsonDiagnostics";
 import { PythonDiagnostics } from "./diagnostics/PythonDiagnostics";
+import { openUrl } from "./util/openUrl";
 import { ScanPipeline } from "./scan/pipeline";
 import { DepRiskDecorationProvider } from "./tree/decorations";
 import { DepRiskTreeProvider } from "./tree/DepRiskTreeProvider";
@@ -104,15 +105,10 @@ export function activate(context: vscode.ExtensionContext): void {
       }
     }),
     vscode.commands.registerCommand("depRisk.openAdvisory", async (item?: { risk?: RiskResult; url?: string }) => {
-      const url = item?.url ?? item?.risk?.advisoryUrls[0] ?? item?.risk?.changelogUrl;
+      const risk = item?.url ? undefined : (item?.risk ?? (await pickRisk()));
+      const url = item?.url ?? risk?.advisoryUrls[0] ?? risk?.changelogUrl;
       if (url) {
-        await vscode.env.openExternal(vscode.Uri.parse(url));
-        return;
-      }
-      const risk = item?.risk ?? (await pickRisk());
-      const fallback = risk?.advisoryUrls[0] ?? risk?.changelogUrl;
-      if (fallback) {
-        await vscode.env.openExternal(vscode.Uri.parse(fallback));
+        await openUrl(url);
         return;
       }
       void vscode.window.showInformationMessage("No advisory or changelog URL is available for this item.");
@@ -120,7 +116,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("depRisk.openChangelog", async (item?: { risk: RiskResult }) => {
       const risk = item?.risk ?? (await pickRisk());
       if (risk?.changelogUrl) {
-        await vscode.env.openExternal(vscode.Uri.parse(risk.changelogUrl));
+        await openUrl(risk.changelogUrl);
       }
     }),
     vscode.workspace.onDidChangeWorkspaceFolders(() => {

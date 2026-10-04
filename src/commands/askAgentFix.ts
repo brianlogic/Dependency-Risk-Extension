@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import type { RiskResult } from "../types";
+import { openUrl } from "../util/openUrl";
 import { isDowngrade } from "../util/version";
 
 export function buildAgentPrompt(risk: RiskResult): string {
@@ -105,7 +106,7 @@ export async function confirmRiskyBump(risk: RiskResult): Promise<boolean> {
     : `Upgrading ${name} to ${risk.recommendedBump} requires a major version bump with likely breaking changes. Review the changelog before proceeding.`;
   const choice = await vscode.window.showWarningMessage(message, { modal: true }, proceed, changelog);
   if (choice === changelog && risk.changelogUrl) {
-    await vscode.env.openExternal(vscode.Uri.parse(risk.changelogUrl));
+    await openUrl(risk.changelogUrl);
   }
   return choice === proceed;
 }
@@ -118,7 +119,7 @@ export async function askAgentFix(risk: RiskResult): Promise<void> {
       open
     );
     if (choice === open && risk.changelogUrl) {
-      await vscode.env.openExternal(vscode.Uri.parse(risk.changelogUrl));
+      await openUrl(risk.changelogUrl);
     }
     return;
   }

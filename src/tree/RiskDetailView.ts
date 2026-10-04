@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { excerptDetails, readingLinks } from "../osv/urls";
 import { TIER_LABEL, type RiskResult, type RiskTier, type VulnSummary } from "../types";
+import { openUrl } from "../util/openUrl";
 import { isDowngrade } from "../util/version";
 import { packageGlance, usageLabel } from "./presentation";
 
@@ -31,7 +32,7 @@ export class RiskDetailView {
     this.risk = risk;
     this.panel.webview.onDidReceiveMessage((message: { type?: string; url?: string }) => {
       if (message.type === "openUrl" && message.url) {
-        void vscode.env.openExternal(vscode.Uri.parse(message.url));
+        void openUrl(message.url);
         return;
       }
       if (message.type === "askAgent") {
