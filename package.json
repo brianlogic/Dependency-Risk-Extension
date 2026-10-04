@@ -2,7 +2,7 @@
   "name": "dependency-version-risk",
   "displayName": "Dependency Version Risk",
   "description": "Live CVE, stale, and EOL risk for npm and PyPI dependencies — sidebar tree, manifest diagnostics, and agent-assisted upgrades.",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "publisher": "BT23",
   "engines": {
     "vscode": "^1.85.0"
