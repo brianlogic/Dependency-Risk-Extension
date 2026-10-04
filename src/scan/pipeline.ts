@@ -89,14 +89,13 @@ export class ScanPipeline {
     const onProgress = opts?.onProgress ?? (() => undefined);
 
     await this.cache.init();
-    onProgress("Parsing lockfile");
-    const lockPackages = await this.loadLockPackages(folder.uri.fsPath, errors);
-    const workspace = await this.collectDirectDeps(folder, opts?.token, errors);
-
-    onProgress("Scanning imports", `${workspace.packageJsonCount} package.json`);
-    const imported = await collectImportedPackages(folder, opts?.token, (warning) =>
-      errors.push(warning)
-    );
+    // Lockfiles, declared dependencies, and import scan do not use each other's results.
+    onProgress("Reading project");
+    const [lockPackages, workspace, imported] = await Promise.all([
+      this.loadLockPackages(folder.uri.fsPath, errors),
+      this.collectDirectDeps(folder, opts?.token, errors),
+      collectImportedPackages(folder, opts?.token, (warning) => errors.push(warning)),
+    ]);
     const packages = this.selectPackages(lockPackages, workspace.direct, imported, cfg, errors);
 
     onProgress("Querying OSV", `${packages.length} packages`);
@@ -152,24 +151,27 @@ export class ScanPipeline {
     let enginesNode: string | undefined;
     let requiresPython: string | undefined;
 
-    const manifests = await find("**/package.json", "{**/node_modules/**,**/dist/**,**/out/**,**/build/**}", 200);
+    const [manifests, pyprojects, requirements, nodePin, pythonPin] = await Promise.all([
+      find("**/package.json", "{**/node_modules/**,**/dist/**,**/out/**,**/build/**}", 200),
+      find("**/pyproject.toml", "{**/node_modules/**,**/.venv/**,**/venv/**,**/dist/**}", 50),
+      find("**/requirements*.txt", "{**/node_modules/**,**/.venv/**,**/venv/**}", 20),
+      readPin(folder.uri.fsPath, [".nvmrc", ".node-version"], /^v?(\d+)(?:\.\d+){0,2}$/),
+      readPin(folder.uri.fsPath, [".python-version", "runtime.txt"], /^(?:python-)?(\d+\.\d+)(?:\.\d+)?$/i),
+    ]);
     if (manifests.overflow) {
       errors.push("Manifest discovery reached its 200-file limit; direct dependency signals may be incomplete.");
     }
+    // Reads stay in discovery order so the first engines / requires-python still wins.
     await each(manifests.paths, async (file) => {
       const m = await readPackageManifest(file);
       directDependencyNames(m).forEach((name) => direct.add(name));
       enginesNode = enginesNode ?? m.enginesNode;
     });
-
-    const pyprojects = await find("**/pyproject.toml", "{**/node_modules/**,**/.venv/**,**/venv/**,**/dist/**}", 50);
     await each(pyprojects.paths, async (file) => {
       const manifest = await readPythonManifest(file);
       manifest.direct.forEach((name) => direct.add(name));
       requiresPython = requiresPython ?? manifest.requiresPython;
     });
-
-    const requirements = await find("**/requirements*.txt", "{**/node_modules/**,**/.venv/**,**/venv/**}", 20);
     await each(requirements.paths, async (file) => {
       (await parseRequirementsFile(file)).direct.forEach((name) => direct.add(name));
     });
@@ -179,10 +181,8 @@ export class ScanPipeline {
     return {
       direct,
       packageJsonCount: manifests.paths.length,
-      enginesNode: (await readPin(folder.uri.fsPath, [".nvmrc", ".node-version"], /^v?(\d+)(?:\.\d+){0,2}$/)) ?? enginesNode,
-      requiresPython:
-        (await readPin(folder.uri.fsPath, [".python-version", "runtime.txt"], /^(?:python-)?(\d+\.\d+)(?:\.\d+)?$/i)) ??
-        requiresPython,
+      enginesNode: nodePin ?? enginesNode,
+      requiresPython: pythonPin ?? requiresPython,
     };
   }
 

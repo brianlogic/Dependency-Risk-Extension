@@ -1,8 +1,10 @@
 // Apply Safe Fix: rewrite the version spec in every matching manifest with one WorkspaceEdit (undoable).
+import * as fs from "fs/promises";
 import * as vscode from "vscode";
 import { npmManifest, pythonManifest } from "../diagnostics/manifests";
 import type { RiskResult } from "../types";
 import { openUrl } from "../util/openUrl";
+import { rangeAt } from "../util/position";
 import { isDowngrade } from "../util/version";
 import { rewriteNpmManifest, rewritePythonManifest, type TextEdit } from "./rewriteSpec";
 
@@ -57,15 +59,17 @@ export async function applySafeFix(risk: RiskResult): Promise<void> {
   const edit = new vscode.WorkspaceEdit();
   const touched: string[] = [];
   for (const uri of uris) {
-    const doc = await vscode.workspace.openTextDocument(uri);
-    const text = doc.getText();
+    // An already-open buffer wins so an unsaved edit is rewritten in place.
+    // Closed files are read from disk and never opened.
+    const open = vscode.workspace.textDocuments.find((doc) => doc.uri.toString() === uri.toString());
+    const text = open ? open.getText() : await fs.readFile(uri.fsPath, "utf8");
     const base = uri.fsPath.split(/[\\/]/).pop() ?? "";
     const edits: TextEdit[] =
       ecosystem === "npm"
         ? rewriteNpmManifest(text, name, target)
         : [rewritePythonManifest(text, base, name, target)].filter((e): e is TextEdit => !!e);
     for (const e of edits) {
-      edit.replace(uri, new vscode.Range(doc.positionAt(e.start), doc.positionAt(e.end)), e.text);
+      edit.replace(uri, rangeAt(text, e.start, e.end), e.text);
     }
     if (edits.length) {
       touched.push(vscode.workspace.asRelativePath(uri));

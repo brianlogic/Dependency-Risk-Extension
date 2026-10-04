@@ -58,6 +58,22 @@ function vulnerabilityRank(vulnerability: VulnSummary): number {
   }
 }
 
+/** Shared fields of an advisory result; only the tier and the reason lines differ. */
+function advisoryResult(
+  tier: "critical" | "high",
+  reasons: Array<string | undefined>,
+  shared: Pick<
+    RiskResult,
+    "recommendedBump" | "isMajorBump" | "changelogUrl" | "advisoryIds" | "advisoryUrls" | "signals"
+  >
+): RiskResult {
+  return {
+    tier,
+    reasons: reasons.filter((reason): reason is string => !!reason),
+    ...shared,
+  };
+}
+
 function usageLabel(pkg: PackageSignals["pkg"]): string {
   if (pkg.imported) {
     return "imported in workspace";
@@ -90,6 +106,7 @@ export function scorePackage(
     pkg.ecosystem
   );
   const major = recommendedBump ? isMajorBump(pkg.version, recommendedBump, pkg.ecosystem) : false;
+  const shared = { recommendedBump, isMajorBump: major, changelogUrl, advisoryIds, advisoryUrls, signals };
 
   if (vulns.length > 0) {
     const criticalHits = orderedVulns.filter(isCriticalVuln);
@@ -98,38 +115,28 @@ export function scorePackage(
 
     if (criticalHits.length > 0 || highOnImported) {
       const top = criticalHits[0] ?? orderedVulns.find(isHighVuln) ?? orderedVulns[0];
-      return {
-        tier: "critical",
-        reasons: [
+      return advisoryResult(
+        "critical",
+        [
           top.summary || `${top.id} affects ${pkg.name}@${pkg.version}`,
           top.hasPublicExploit ? "Public exploit references found" : undefined,
           top.cvssScore != null ? `CVSS ${top.cvssScore}` : top.severity,
           `Usage: ${usageLabel(pkg)}`,
-        ].filter((x): x is string => !!x),
-        recommendedBump,
-        isMajorBump: major,
-        changelogUrl,
-        advisoryIds,
-        advisoryUrls,
-        signals,
-      };
+        ],
+        shared
+      );
     }
 
     const top = orderedVulns[0];
-    return {
-      tier: "high",
-      reasons: [
+    return advisoryResult(
+      "high",
+      [
         top.summary || `${top.id} affects ${pkg.name}@${pkg.version}`,
         top.severity && top.severity !== "UNKNOWN" ? `Severity ${top.severity}` : undefined,
         `Usage: ${usageLabel(pkg)}`,
-      ].filter((x): x is string => !!x),
-      recommendedBump,
-      isMajorBump: major,
-      changelogUrl,
-      advisoryIds,
-      advisoryUrls,
-      signals,
-    };
+      ],
+      shared
+    );
   }
 
   const staleReasons: string[] = [];
