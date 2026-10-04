@@ -15,7 +15,6 @@
 import * as vscode from "vscode";
 import { getConfig } from "./config";
 import { applySafeFix } from "./commands/applySafeFix";
-import { askAgentFix, copyAgentPrompt } from "./commands/askAgentFix";
 import { ManifestCodeActions } from "./diagnostics/ManifestCodeActions";
 import { ManifestDiagnostics } from "./diagnostics/ManifestDiagnostics";
 import { npmManifest, pythonManifest, WORKSPACE_WATCH_GLOB } from "./diagnostics/manifests";
@@ -98,12 +97,6 @@ export function activate(context: vscode.ExtensionContext): void {
         return runScan(folder, true);
       }
     }),
-    vscode.commands.registerCommand("depRisk.askAgentFix", async (item?: { risk: RiskResult }) => {
-      const risk = item?.risk ?? (await pickRisk());
-      if (risk) {
-        await askAgentFix(risk);
-      }
-    }),
     vscode.commands.registerCommand("depRisk.applySafeFix", async (item?: { risk?: RiskResult; name?: string; ecosystem?: string }) => {
       // Tooltip links pass only name + ecosystem.
       const risk =
@@ -114,12 +107,6 @@ export function activate(context: vscode.ExtensionContext): void {
         (await pickRisk());
       if (risk) {
         await applySafeFix(risk);
-      }
-    }),
-    vscode.commands.registerCommand("depRisk.copyAgentPrompt", async (item?: { risk: RiskResult }) => {
-      const risk = item?.risk ?? (await pickRisk());
-      if (risk) {
-        await copyAgentPrompt(risk);
       }
     }),
     vscode.commands.registerCommand("depRisk.showRisk", async (item?: { risk: RiskResult }) => {

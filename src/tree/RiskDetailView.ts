@@ -38,10 +38,6 @@ export class RiskDetailView {
       }
       if (message.type === "applySafeFix") {
         void vscode.commands.executeCommand("depRisk.applySafeFix", { risk: this.risk });
-        return;
-      }
-      if (message.type === "askAgent") {
-        void vscode.commands.executeCommand("depRisk.askAgentFix", { risk: this.risk });
       }
     });
     this.panel.onDidDispose(() => {
@@ -64,7 +60,7 @@ export class RiskDetailView {
   }
 }
 
-// Rendering is plain HTML strings; the webview posts messages (openUrl / askAgent) back to the extension.
+// Rendering is plain HTML strings; the webview posts messages (openUrl / applySafeFix) back to the extension.
 function panelTitle(risk: RiskResult): string {
   return `${risk.signals.pkg.name}@${risk.signals.pkg.version}`;
 }
@@ -88,10 +84,8 @@ function renderDetail(webview: vscode.Webview, risk: RiskResult): string {
   if (risk.changelogUrl) {
     extraLinks.push(linkButton(risk.changelogUrl, risk.tier === "eol" ? "Open EOL page" : "Changelog"));
   }
-  const ask =
-    risk.tier === "eol"
-      ? ""
-      : `${risk.recommendedBump ? `<button type="button" data-action="safeFix">Apply Safe Fix</button>` : ""}<button type="button" class="secondary" data-action="ask">Ask Agent to Upgrade + Fix</button>`;
+  const fix =
+    risk.tier !== "eol" && risk.recommendedBump ? `<button type="button" data-action="safeFix">Apply Safe Fix</button>` : "";
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -170,7 +164,7 @@ function renderDetail(webview: vscode.Webview, risk: RiskResult): string {
     pkg.ecosystem === "pypi" ? " · PyPI" : " · npm"
   }</p>
   ${bump}
-  <div class="actions">${ask}</div>
+  <div class="actions">${fix}</div>
   <h2>${vulns.length === 1 ? "1 advisory" : `${vulns.length} advisories`}</h2>
   ${issues}
   ${
@@ -189,10 +183,6 @@ function renderDetail(webview: vscode.Webview, risk: RiskResult): string {
       event.preventDefault();
       if (target.dataset.action === "safeFix") {
         vscode.postMessage({ type: "applySafeFix" });
-        return;
-      }
-      if (target.dataset.action === "ask") {
-        vscode.postMessage({ type: "askAgent" });
         return;
       }
       if (target.dataset.url) {

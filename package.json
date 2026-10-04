@@ -1,7 +1,7 @@
 {
   "name": "dependency-version-risk",
   "displayName": "Dependency Version Risk",
-  "description": "Live CVE, stale, and EOL risk for npm and PyPI dependencies — sidebar tree, manifest diagnostics, and agent-assisted upgrades.",
+  "description": "Live CVE, stale, and EOL risk for npm and PyPI dependencies — sidebar tree, manifest diagnostics, and one-click safe fixes.",
   "version": "0.2.3",
   "publisher": "BT23",
   "engines": {
@@ -32,12 +32,8 @@
     "onStartupFinished",
     "workspaceContains:**/package-lock.json",
     "workspaceContains:**/npm-shrinkwrap.json",
-    "workspaceContains:**/pnpm-lock.yaml",
-    "workspaceContains:**/yarn.lock",
-    "workspaceContains:**/bun.lock",
     "workspaceContains:**/uv.lock",
     "workspaceContains:**/poetry.lock",
-    "workspaceContains:**/Pipfile.lock",
     "workspaceContains:**/requirements.txt",
     "workspaceContains:**/pyproject.toml",
     "onView:depRisk.sidebar",
@@ -107,11 +103,6 @@
         "icon": "$(refresh)"
       },
       {
-        "command": "depRisk.askAgentFix",
-        "title": "Ask Agent to Upgrade + Fix",
-        "icon": "$(sparkle)"
-      },
-      {
         "command": "depRisk.applySafeFix",
         "title": "Apply Safe Fix",
         "icon": "$(wrench)"
@@ -128,10 +119,6 @@
       {
         "command": "depRisk.openChangelog",
         "title": "Dep Risk: Open Changelog / Release Notes"
-      },
-      {
-        "command": "depRisk.copyAgentPrompt",
-        "title": "Dep Risk: Copy Agent Prompt"
       }
     ],
     "menus": {
@@ -149,14 +136,9 @@
           "group": "inline@1"
         },
         {
-          "command": "depRisk.askAgentFix",
-          "when": "(view == depRisk.sidebar || view == depRisk.explorer) && viewItem =~ /depRisk\\.package/",
-          "group": "inline@2"
-        },
-        {
           "command": "depRisk.showRisk",
           "when": "(view == depRisk.sidebar || view == depRisk.explorer) && viewItem =~ /depRisk\\.package/",
-          "group": "inline@3"
+          "group": "inline@2"
         },
         {
           "command": "depRisk.openAdvisory",
@@ -167,11 +149,6 @@
           "command": "depRisk.openChangelog",
           "when": "(view == depRisk.sidebar || view == depRisk.explorer) && viewItem =~ /depRisk\\.package/",
           "group": "1_nav@2"
-        },
-        {
-          "command": "depRisk.copyAgentPrompt",
-          "when": "(view == depRisk.sidebar || view == depRisk.explorer) && viewItem =~ /depRisk\\.package/",
-          "group": "1_nav@3"
         }
       ]
     },
