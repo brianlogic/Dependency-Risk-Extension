@@ -2,18 +2,28 @@
   "name": "dependency-version-risk",
   "displayName": "Dependency Version Risk",
   "description": "Live CVE, stale, and EOL risk for npm and PyPI dependencies — sidebar tree, manifest diagnostics, and agent-assisted upgrades.",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "publisher": "BT23",
   "engines": {
     "vscode": "^1.85.0"
   },
   "license": "MIT",
   "icon": "media/icon.png",
-  "keywords": ["npm", "python", "pypi", "pip", "security", "cve", "dependencies", "osv", "cursor"], 
+  "keywords": [
+    "npm",
+    "python",
+    "pypi",
+    "pip",
+    "security",
+    "cve",
+    "dependencies",
+    "osv",
+    "cursor"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/brianlogic/Dependency-Risk-Extension.git"
-    },
+  },
   "categories": [
     "Other",
     "Linters"

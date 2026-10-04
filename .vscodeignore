@@ -12,3 +12,4 @@ esbuild.js
 **/*.ts
 **/*.map
 !dist/**/*.js
+.claude/**
