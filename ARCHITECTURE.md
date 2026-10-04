@@ -1,6 +1,6 @@
 # Architecture
 
-Dependency Version Risk is a VS Code / Cursor extension. It reads a workspace's lockfiles, asks public data sources (OSV, npm, PyPI, endoflife.date) about each package, scores the results into risk tiers, and shows them in a sidebar, as editor squiggles on manifests, and in the status bar. It can also rewrite a manifest to a safe version.
+Dependency Version Risk is a VS Code / Cursor extension. It reads a workspace's lockfiles, asks public data sources (OSV, npm, PyPI, endoflife.date) about each package, scores the results into risk tiers, and shows them in a sidebar, as editor squiggles on manifests, and in the status bar. It can also rewrite a manifest to a safe version or hand a fix prompt to an AI chat.
 
 `src/extension.ts` is bundled by esbuild (`esbuild.js`) into `dist/extension.js`; `vscode` is external.
 
@@ -18,7 +18,7 @@ Dependency Version Risk is a VS Code / Cursor extension. It reads a workspace's 
 | `score/` | Pure tier rules: advisories + signals -> `RiskResult` |
 | `cache/` | JSON cache in `.dep-risk/cache.json` |
 | `diagnostics/` | Squiggles on dependency lines and the quick-fix provider |
-| `commands/` | Apply Safe Fix, manifest text rewriting |
+| `commands/` | Apply Safe Fix, Ask Agent, manifest text rewriting |
 | `tree/` | Sidebar tree, overview webview, detail webview, badges |
 | `util/` | HTTP with retry, bounded concurrency, semver / PEP 440, key helpers |
 
@@ -65,8 +65,9 @@ After a scan, `runScan` fans out to: `DepRiskTreeProvider` (sidebar and Explorer
 ## Fix flow
 
 1. A squiggle, tree row or command palette entry reaches a `depRisk.*` command (`pickRisk` is the fallback picker).
-2. `ManifestCodeActions` offers two quick fixes per risk: Apply Safe Fix, Open Advisory/Changelog. They only call commands.
+2. `ManifestCodeActions` offers three quick fixes per risk: Apply Safe Fix, Ask Agent, Open Advisory/Changelog. They only call commands.
 3. **Apply Safe Fix** (`commands/applySafeFix.ts`): `confirmRiskyBump` (modal for major bumps and downgrades) -> `rewriteNpmManifest` / `rewritePythonManifest` -> one `WorkspaceEdit` (undoable). Lockfiles are not touched.
+4. **Ask Agent**: `buildAgentPrompt` -> `confirmRiskyBump` -> copy to clipboard, open the first available chat command, paste.
 
 ## Limits and decisions
 

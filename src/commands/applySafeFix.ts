@@ -3,9 +3,8 @@ import * as fs from "fs/promises";
 import * as vscode from "vscode";
 import { npmManifest, pythonManifest } from "../diagnostics/manifests";
 import type { RiskResult } from "../types";
-import { openUrl } from "../util/openUrl";
 import { rangeAt } from "../util/position";
-import { isDowngrade } from "../util/version";
+import { confirmRiskyBump } from "./askAgentFix";
 import { rewriteNpmManifest, rewritePythonManifest, type TextEdit } from "./rewriteSpec";
 
 // Same manifest globs the diagnostics use.
@@ -13,25 +12,6 @@ const GLOBS = {
   npm: { include: npmManifest.include, exclude: npmManifest.exclude },
   pypi: { include: pythonManifest.include, exclude: pythonManifest.exclude },
 };
-
-/** Modal warning for major bumps and downgrades; true only if the user chooses to proceed. */
-export async function confirmRiskyBump(risk: RiskResult): Promise<boolean> {
-  const { name, version } = risk.signals.pkg;
-  const downgrade = isDowngrade(risk);
-  if (!downgrade && !risk.isMajorBump) {
-    return true;
-  }
-  const proceed = "Proceed anyway";
-  const changelog = "Review changelog";
-  const message = downgrade
-    ? `This moves ${name} backwards from ${version} to ${risk.recommendedBump}. Features or APIs added in newer versions may be missing, so code that uses them can break. Review the changelog before proceeding.`
-    : `Upgrading ${name} to ${risk.recommendedBump} requires a major version bump with likely breaking changes. Review the changelog before proceeding.`;
-  const choice = await vscode.window.showWarningMessage(message, { modal: true }, proceed, changelog);
-  if (choice === changelog && risk.changelogUrl) {
-    await openUrl(risk.changelogUrl);
-  }
-  return choice === proceed;
-}
 
 /**
  * Bumps (or downgrades) the package to `risk.recommendedBump` after confirming risky changes.
@@ -78,7 +58,7 @@ export async function applySafeFix(risk: RiskResult): Promise<void> {
 
   if (!touched.length) {
     void vscode.window.showWarningMessage(
-      `Couldn't rewrite ${name} automatically (not a simple version spec). Edit it manually.`
+      `Couldn't rewrite ${name} automatically (not a simple version spec). Edit it manually or ask the agent.`
     );
     return;
   }

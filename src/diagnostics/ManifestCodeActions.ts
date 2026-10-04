@@ -9,7 +9,7 @@ export interface RiskLookup {
   findRiskAt(document: vscode.TextDocument, range: vscode.Range): RiskResult | undefined;
 }
 
-/** Offers Apply Safe Fix and Open Advisory/Changelog for a risk; each action only invokes a depRisk.* command. */
+/** Offers Apply Safe Fix, Ask Agent and Open Advisory/Changelog for a risk; each action only invokes a depRisk.* command. */
 export class ManifestCodeActions implements vscode.CodeActionProvider {
   constructor(private readonly lookups: RiskLookup[]) {}
 
@@ -68,6 +68,22 @@ function pushActions(
       fix.diagnostics = [diagnostic];
     }
     actions.push(fix);
+  }
+
+  if (risk.tier !== "eol") {
+    const ask = new vscode.CodeAction(
+      `Ask Agent to Upgrade + Fix ${risk.signals.pkg.name}`,
+      vscode.CodeActionKind.QuickFix
+    );
+    ask.command = {
+      command: "depRisk.askAgentFix",
+      title: ask.title,
+      arguments: [{ risk }],
+    };
+    if (diagnostic) {
+      ask.diagnostics = [diagnostic];
+    }
+    actions.push(ask);
   }
 
   const url = risk.advisoryUrls[0] ?? risk.changelogUrl;
