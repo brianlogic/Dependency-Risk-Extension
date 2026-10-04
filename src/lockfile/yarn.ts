@@ -7,6 +7,7 @@ export async function parseYarnLockfile(lockfilePath: string): Promise<LockPacka
   return /^__metadata:\s*$/m.test(raw) ? parseYarnBerry(raw) : parseYarnClassic(raw);
 }
 
+/** Yarn v1 format: `"name@range":` header followed by an indented `version` line. */
 function parseYarnClassic(raw: string): LockPackage[] {
   const out = new Map<string, LockPackage>();
 
@@ -42,6 +43,7 @@ function parseYarnClassic(raw: string): LockPackage[] {
   return [...out.values()];
 }
 
+/** Yarn 2+ format (YAML-like): takes the `version` line under each entry key; local workspace entries (`0.0.0-use.local`) are skipped. */
 function parseYarnBerry(raw: string): LockPackage[] {
   const out = new Map<string, LockPackage>();
   const versionRe = /^\s+version:\s*"?([^"\s]+)"?/;
@@ -79,6 +81,7 @@ function parseYarnBerry(raw: string): LockPackage[] {
   return [...out.values()];
 }
 
+/** Package name from a Berry entry key (strips the `@npm:range` suffix). */
 function yarnBerryName(key: string): string | undefined {
   const descriptors = key.split(/",\s*"|, (?=(?:@[^@/]+\/)?[^@\s]+@)/);
   for (const descriptor of descriptors) {

@@ -3,6 +3,7 @@ import * as vscode from "vscode";
 import { extractImportedPythonPackages } from "./pyImports";
 import { extractImportedPackageNames } from "./specifiers";
 
+// Search globs: skip dependency, build and virtualenv trees; cap files to keep large repos fast.
 const IGNORE =
   "{**/node_modules/**,**/dist/**,**/out/**,**/build/**,**/.git/**,**/coverage/**,**/.next/**,**/.venv/**,**/venv/**,**/.tox/**}";
 const FILE_CAP = 4000;

@@ -1,3 +1,4 @@
+// Minimal PEP 440 version parsing/comparison (epoch, release, pre/post/dev); local versions are ignored.
 export interface Pep440Version {
   epoch: number;
   release: number[];
@@ -20,6 +21,7 @@ const PRE: Record<string, number> = {
 const PEP440_RE =
   /^(?:v)?(?:(?<epoch>\d+)!)?(?<release>\d+(?:\.\d+)*)(?:[-._]?(?<preLetter>a|b|c|rc|alpha|beta|pre|preview)[-._]?(?<preNum>\d*))?(?:(?:[-._]?(?:post|rev|r)[-._]?(?<post>\d*))|(?<postImplicit>-(?<postDash>\d+)))?(?:[-._]?dev[-._]?(?<dev>\d*))?(?:\+[a-z0-9]+(?:[.][a-z0-9]+)*)?$/i;
 
+/** Parses a version string; undefined if it isn't valid PEP 440. */
 export function parsePep440(version: string): Pep440Version | undefined {
   const trimmed = version.trim();
   if (!trimmed) {
@@ -51,6 +53,7 @@ export function parsePep440(version: string): Pep440Version | undefined {
   return parsed;
 }
 
+/** -1 / 0 / 1 ordering, or undefined if either side is unparsable. */
 export function comparePep440(left: string, right: string): number | undefined {
   const a = parsePep440(left);
   const b = parsePep440(right);
@@ -86,6 +89,7 @@ export function pep440IsMajorBump(from: string, to: string): boolean {
   return (b.release[0] ?? 0) > (a.release[0] ?? 0);
 }
 
+/** Smallest version after `version`: bumps the last release segment (pads to 3 segments). Used for `last_affected` bounds. */
 export function pep440NextPatch(version: string): string | undefined {
   const parsed = parsePep440(version);
   if (!parsed) {
@@ -102,6 +106,7 @@ export function pep440NextPatch(version: string): string | undefined {
   return `${epoch}${release.join(".")}`;
 }
 
+/** True for plain registry versions; VCS/URL/path pins can't be looked up in OSV. */
 export function isQueryablePypiVersion(version: string): boolean {
   if (!version) {
     return false;
@@ -162,6 +167,7 @@ function compareParsed(a: Pep440Version, b: Pep440Version): number {
   return 0;
 }
 
+/** Numeric sort key encoding the pre/post/dev ordering rules from PEP 440. */
 function cmpKey(version: Pep440Version): number[] {
   const NEG = Number.NEGATIVE_INFINITY;
   const POS = Number.POSITIVE_INFINITY;

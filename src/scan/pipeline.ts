@@ -1,3 +1,9 @@
+/**
+ * Scan pipeline: turns a workspace folder into a ScanSummary.
+ * Phases: parse lockfiles -> collect direct deps -> scan imports -> select packages
+ * -> OSV batch query -> registry metadata -> hydrate + score -> runtime EOL -> summarize.
+ * Network results go through RiskCache so repeat scans are mostly offline.
+ */
 import * as fs from "fs/promises";
 import * as path from "path";
 import * as vscode from "vscode";
@@ -37,8 +43,10 @@ import { packageNameKey, packageVersionKey } from "../util/packageKey";
 import { isQueryableVersion, namesMatch } from "../util/version";
 import { TIER_ORDER, type Ecosystem, type PackageRef, type RiskResult, type ScanSummary, type RiskTier, type VulnSummary } from "../types";
 
+/** Progress callback: `phase` is a short label, `detail` an optional count or note. */
 export type ProgressFn = (phase: string, detail?: string) => void;
 
+/** Owns the cache and API clients for one workspace folder; call `scan` to produce results. */
 export class ScanPipeline {
   readonly cache: RiskCache;
   private readonly osv: OsvClient;
@@ -55,10 +63,15 @@ export class ScanPipeline {
     this.eol = new EolClient(this.cache);
   }
 
+/** Loads the on-disk cache (idempotent, so `scan` can call it defensively). */
   async init(): Promise<void> {
     await this.cache.init();
   }
 
+/**
+ * Runs every phase and returns the summary. Failures in a single source (one package, one
+ * registry) are collected in `summary.errors` instead of aborting, so results may be partial.
+ */
   async scan(
     folder: vscode.WorkspaceFolder,
     opts?: { force?: boolean; token?: vscode.CancellationToken; onProgress?: ProgressFn }
@@ -81,7 +94,9 @@ export class ScanPipeline {
     onProgress("Querying OSV", `${packages.length} packages`);
     const batch = await this.osv.queryBatch(packages, { force: opts?.force });
 
+// Label only: advisory hydration actually happens per package inside scoreAll.
     onProgress("Hydrating advisories");
+// Registry metadata is only needed for packages the user cares about or that have advisories.
     const registryKeys = packages.filter((pkg) => {
       const refs = batch.get(packageVersionKey(pkg)) ?? [];
       return pkg.direct || pkg.imported || refs.length > 0;
@@ -96,6 +111,11 @@ export class ScanPipeline {
     return summarize(packages.length, results, errors, onProgress);
   }
 
+/**
+ * Gathers names declared directly by the user (package.json, pyproject.toml, requirements*.txt)
+ * plus runtime pins (Node / Python) used for the EOL check. Discovery is capped per file type
+ * to keep huge monorepos fast; hitting a cap is reported in `errors`.
+ */
   private async collectDirectDeps(
     folder: vscode.WorkspaceFolder,
     token: vscode.CancellationToken | undefined,
@@ -167,6 +187,7 @@ export class ScanPipeline {
       }
     }
 
+// Version-manager pin files (.nvmrc, .python-version) win over engines / requires-python.
     return {
       direct,
       packageJsonCount: manifests.length,
@@ -175,6 +196,10 @@ export class ScanPipeline {
     };
   }
 
+/**
+ * Drops non-registry entries (git/file/link/workspace), then enforces `maxPackagesPerScan`,
+ * keeping direct and imported packages ahead of the transitive rest.
+ */
   private selectPackages(
     lockPackages: LockPackage[],
     direct: Set<string>,
@@ -206,6 +231,7 @@ export class ScanPipeline {
     return packages;
   }
 
+/** Fetches latest version / publish date / changelog URL once per package name (bounded concurrency). */
   private async loadRegistryMeta(
     registryKeys: PackageRef[],
     force: boolean | undefined,
@@ -228,6 +254,10 @@ export class ScanPipeline {
     return metaByKey;
   }
 
+/**
+ * Hydrates advisories for each package (OSV batch only returns ids), combines them with registry
+ * signals, and scores. Packages tiered "clear" are omitted from the results.
+ */
   private async scoreAll(
     packages: PackageRef[],
     batch: Map<string, { id: string; modified?: string }[]>,
@@ -259,6 +289,7 @@ export class ScanPipeline {
     return results;
   }
 
+/** Adds a result when the pinned Node or Python runtime is end-of-life. */
   private async appendRuntimeEol(
     results: RiskResult[],
     enginesNode: string | undefined,
@@ -288,6 +319,10 @@ export class ScanPipeline {
     return ecosystem === "pypi" ? this.pypi : this.npm;
   }
 
+/**
+ * Finds lockfiles and parses one JS kind and one Python kind (by priority) so the same
+ * package is not counted twice. Multiple files of the chosen kind (monorepos) are merged.
+ */
   private async loadLockPackages(root: string, errors: string[]): Promise<LockPackage[]> {
     const locks = await findLockfiles(root);
     if (!locks.length) {
@@ -359,6 +394,11 @@ export class ScanPipeline {
     return mergeLockPackages(batches);
   }
 
+/**
+ * Marks each package direct / imported. npm "direct" also requires a hoisted or workspace install,
+ * so a nested copy of a directly-declared name is treated as transitive. PyPI names are
+ * compared after normalization (PEP 503).
+ */
   private toPackageRefs(
     lockPackages: LockPackage[],
     direct: Set<string>,
@@ -389,6 +429,7 @@ export class ScanPipeline {
   }
 }
 
+/** Dispatches to the parser for `kind`. Requirements files only count `==` pins; unpinned ones are reported. */
 async function parseLockfile(
   lock: string,
   kind: LockfileKind,
@@ -425,10 +466,12 @@ async function parseLockfile(
   }
 }
 
+/** First kind in priority `order` that was actually found. */
 function firstKind(byKind: Map<LockfileKind, string[]>, order: LockfileKind[]): LockfileKind | undefined {
   return order.find((kind) => byKind.has(kind));
 }
 
+/** Set membership that tolerates PyPI name variants (e.g. `Foo_Bar` vs `foo-bar`). */
 function hasName(names: Set<string>, pkgName: string): boolean {
   if (names.has(pkgName)) {
     return true;
@@ -441,6 +484,7 @@ function hasName(names: Set<string>, pkgName: string): boolean {
   return false;
 }
 
+/** One entry per package name: metadata is per name, not per version. */
 function uniqueByName(packages: PackageRef[]): PackageRef[] {
   const seen = new Set<string>();
   const out: PackageRef[] = [];
@@ -459,6 +503,7 @@ function emptyTierCounts(): Record<RiskTier, number> {
   return Object.fromEntries(TIER_ORDER.map((tier) => [tier, 0])) as Record<RiskTier, number>;
 }
 
+/** Counts results per tier and sorts: tier first, then imported > direct > transitive, then name. */
 function summarize(
   packageCount: number,
   results: RiskResult[],
@@ -493,6 +538,7 @@ function summarize(
   };
 }
 
+/** Reads `major.minor` from .python-version or runtime.txt, if present. */
 async function readPinnedPythonVersion(root: string): Promise<string | undefined> {
   for (const filename of [".python-version", "runtime.txt"]) {
     try {
@@ -508,6 +554,7 @@ async function readPinnedPythonVersion(root: string): Promise<string | undefined
   return undefined;
 }
 
+/** Reads the major version from .nvmrc or .node-version, if present. */
 async function readPinnedNodeVersion(root: string): Promise<string | undefined> {
   for (const filename of [".nvmrc", ".node-version"]) {
     try {

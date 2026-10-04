@@ -1,3 +1,4 @@
+// Shape shared by every lockfile parser. Missing `ecosystem` means npm.
 import type { Ecosystem } from "../types";
 
 export interface LockPackage {

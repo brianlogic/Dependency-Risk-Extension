@@ -1,7 +1,12 @@
+/**
+ * npm-flavoured lockfile helpers: package.json reading, package-lock.json parsing, lockfile
+ * discovery and classification, and merging results from several lockfiles.
+ */
 import * as fs from "fs/promises";
 import * as path from "path";
 import type { LockPackage } from "./types";
 
+/** Dependency tables and `engines.node` read from a package.json. */
 export interface ManifestDeps {
   dependencies: Record<string, string>;
   devDependencies: Record<string, string>;
@@ -32,6 +37,7 @@ interface NpmLockV2 {
   >;
 }
 
+/** Package name from a lock path, e.g. `a/node_modules/@s/b` -> `@s/b` (innermost wins). */
 export function nameFromNodeModulesPath(lockPath: string): string | undefined {
   const parts = lockPath.split("/node_modules/");
   const leaf =
@@ -66,6 +72,7 @@ export function isHoistedOrWorkspaceInstall(lockPath: string, name: string): boo
   return !prefix.includes("node_modules");
 }
 
+/** Reads dependency tables and `engines.node` from a package.json. */
 export async function readPackageManifest(manifestPath: string): Promise<ManifestDeps> {
   const raw = await fs.readFile(manifestPath, "utf8");
   const json = JSON.parse(raw) as {
@@ -84,6 +91,7 @@ export async function readPackageManifest(manifestPath: string): Promise<Manifes
   };
 }
 
+/** Names declared by the user in any dependency table. */
 export function directDependencyNames(manifest: ManifestDeps): Set<string> {
   return new Set([
     ...Object.keys(manifest.dependencies),
@@ -145,13 +153,16 @@ export async function parseNpmLockfile(lockfilePath: string): Promise<LockPackag
   return [...out.values()];
 }
 
+/** Nesting depth: 1 = top-level install; used to prefer the shallowest copy when merging. */
 export function lockPathDepth(lockPath: string): number {
   return lockPath.split("/node_modules/").length;
 }
 
+// Caps for monorepos: at most 50 lockfiles, walking 8 directories deep.
 export const LOCKFILE_DISCOVERY_LIMIT = 50;
 export const LOCKFILE_WALK_DEPTH = 8;
 
+// Directories never searched for lockfiles.
 const SKIP_DIRS = new Set([
   "node_modules",
   ".git",
@@ -184,6 +195,7 @@ export type LockfileKind =
   | "pipfile"
   | "requirements";
 
+/** Classifies a lockfile by file name; `bun-binary` (bun.lockb) is recognized only so it can be reported as unsupported. */
 export function lockfileKind(filePath: string): LockfileKind | undefined {
   const base = path.basename(filePath);
   if (base === "package-lock.json" || base === "npm-shrinkwrap.json") {
@@ -216,6 +228,7 @@ export function lockfileKind(filePath: string): LockfileKind | undefined {
   return undefined;
 }
 
+/** Combines lockfiles, keeping one entry per ecosystem:name@version with the shallowest lock path. */
 export function mergeLockPackages(batches: LockPackage[][]): LockPackage[] {
   const out = new Map<string, LockPackage>();
   for (const batch of batches) {

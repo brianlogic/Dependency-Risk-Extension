@@ -1,3 +1,4 @@
+// Ecosystem dispatcher: picks semver (npm) or PEP 440 (PyPI) logic so callers don't branch.
 import type { Ecosystem, RiskResult } from "../types";
 import {
   isDowngrade as npmIsDowngrade,
@@ -35,6 +36,7 @@ export function isMajorBump(from: string, to: string, ecosystem: Ecosystem = "np
 }
 
 /** True when the recommended target is older than the installed version. */
+/** True when the recommended bump is older than the installed version (advisory fixed only in an earlier branch). */
 export function isDowngrade(risk: RiskResult): boolean {
   const { version, ecosystem } = risk.signals.pkg;
   const to = risk.recommendedBump;
@@ -58,10 +60,12 @@ export function nextPatchAfter(version: string, ecosystem: Ecosystem = "npm"): s
   return ecosystem === "pypi" ? pep440NextPatch(version) : npmNextPatchAfter(version);
 }
 
+/** PEP 503 normalization: lowercase, runs of `-_.` collapse to `-`. */
 export function normalizePyName(name: string): string {
   return name.toLowerCase().replace(/[._]/g, "-");
 }
 
+/** PyPI name equality after normalization. */
 export function namesMatch(left: string, right: string): boolean {
   return normalizePyName(left) === normalizePyName(right);
 }

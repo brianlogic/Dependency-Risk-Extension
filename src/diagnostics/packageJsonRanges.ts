@@ -1,5 +1,6 @@
 import { findNodeAtLocation, parseTree, type Node } from "jsonc-parser";
 
+// Locates dependencies in package.json with jsonc-parser so offsets stay right for any formatting.
 const DEPENDENCY_SECTIONS = [
   "dependencies",
   "devDependencies",
@@ -7,6 +8,7 @@ const DEPENDENCY_SECTIONS = [
   "peerDependencies",
 ] as const;
 
+/** Offsets of the whole `"name": "range"` property in the first section that declares it. */
 export function findDependencyOffsets(
   text: string,
   packageName: string
@@ -26,6 +28,7 @@ export function findDependencyOffsets(
   return undefined;
 }
 
+/** Name of the dependency property containing `offset`, if any. */
 export function findDependencyNameAtOffset(text: string, offset: number): string | undefined {
   const root = parseTree(text);
   if (!root) {

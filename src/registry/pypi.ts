@@ -8,6 +8,7 @@ import {
   type RegistryClient,
 } from "./meta";
 
+// PyPI JSON API client. Metadata comes from /pypi/{name}/json; the raw response is cached.
 const REGISTRY = "https://pypi.org/pypi";
 
 export type PypiPackageMeta = PackageRegistryMeta;
@@ -21,6 +22,7 @@ interface PypiResponse {
   releases?: Record<string, Array<{ upload_time_iso_8601?: string; upload_time?: string }>>;
 }
 
+/** Latest version and upload time from PyPI. */
 export class PypiRegistry implements RegistryClient {
   constructor(private readonly cache: RiskCache) {}
 
@@ -47,6 +49,7 @@ export class PypiRegistry implements RegistryClient {
   }
 }
 
+/** Builds metadata from a raw response; the repository URL is guessed from project_urls in priority order. */
 function fromCached(latest: string, raw: PypiResponse): PypiPackageMeta {
   const urls = raw.info?.project_urls ?? {};
   const repositoryUrl =
@@ -60,11 +63,13 @@ function fromCached(latest: string, raw: PypiResponse): PypiPackageMeta {
   };
 }
 
+/** Upload time of the first file of `version` (any file is fine; they upload together). */
 function uploadTime(raw: PypiResponse, version: string): string | undefined {
   const files = raw.releases?.[version] ?? [];
   return files.find((file) => file.upload_time_iso_8601)?.upload_time_iso_8601 ?? files[0]?.upload_time;
 }
 
+/** First project URL whose label matches one of `keys` (case-insensitive), normalized. */
 function firstUrl(urls: Record<string, string>, keys: string[]): string | undefined {
   for (const key of keys) {
     const match = Object.entries(urls).find(([name]) => name.toLowerCase() === key.toLowerCase());

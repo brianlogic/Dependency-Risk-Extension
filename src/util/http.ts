@@ -1,3 +1,4 @@
+/** Non-2xx response; `body` holds the first 500 chars for diagnostics. */
 export class HttpError extends Error {
   constructor(
     message: string,
@@ -9,6 +10,10 @@ export class HttpError extends Error {
   }
 }
 
+/**
+ * GET/POST JSON with a timeout. Retries (default 2) on network errors, 429 and 5xx with
+ * backoff, honoring Retry-After. Invalid JSON and other 4xx fail immediately.
+ */
 export async function fetchJson<T>(
   url: string,
   init?: RequestInit & { timeoutMs?: number; retries?: number }
@@ -70,6 +75,7 @@ export async function fetchJson<T>(
   throw new Error(`Request failed after ${retries + 1} attempts: ${url}`);
 }
 
+/** Retry-After (capped at 10s) if given, else exponential backoff capped at 4s. */
 function retryDelayMs(attempt: number, retryAfter?: string | null): number {
   if (retryAfter) {
     const seconds = Number(retryAfter);
@@ -84,6 +90,7 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** Like Promise.all(items.map(fn)) but with at most `concurrency` in flight; results keep input order. */
 export async function mapPool<T, R>(
   items: T[],
   concurrency: number,

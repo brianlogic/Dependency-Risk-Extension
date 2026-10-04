@@ -1,5 +1,7 @@
+// npm-side version math on top of the `semver` package (`coerce` tolerates ranges and prefixes).
 import * as semver from "semver";
 
+/** Major versions between `current` and `latest` (never negative); undefined if unparsable. */
 export function majorsBehind(current: string, latest: string): number | undefined {
   const a = semver.coerce(current);
   const b = semver.coerce(latest);
@@ -69,6 +71,7 @@ export function nextPatchAfter(version: string): string | undefined {
 }
 
 /** True when a lockfile version is a concrete registry semver OSV can query. */
+/** True for plain registry versions; git/file/link/workspace specs can't be looked up in OSV. */
 export function isQueryableNpmVersion(version: string): boolean {
   if (!version) {
     return false;

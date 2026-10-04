@@ -1,8 +1,13 @@
+// "Ask Agent" flow: build a fix prompt for a risk and hand it to the editor's AI chat.
 import * as vscode from "vscode";
 import type { RiskResult } from "../types";
 import { openUrl } from "../util/openUrl";
 import { isDowngrade } from "../util/version";
 
+/**
+ * Prompt text for the agent. Without a known fixed version it asks for investigation instead of
+ * inventing a target; downgrades and major bumps add explicit warnings.
+ */
 export function buildAgentPrompt(risk: RiskResult): string {
   const pkg = risk.signals.pkg;
   const cves =
@@ -48,6 +53,7 @@ export function buildAgentPrompt(risk: RiskResult): string {
   return lines.join("\n");
 }
 
+/** No stable API accepts a prompt, so: copy to clipboard, open the first available chat command, paste. Falls back to a notice. */
 async function openAgentWithPrompt(prompt: string): Promise<void> {
   // Cursor chat commands may exist but ignore programmatic prompt arguments.
   // Copy first, open a known chat surface, then paste into the focused input.
@@ -111,6 +117,7 @@ export async function confirmRiskyBump(risk: RiskResult): Promise<boolean> {
   return choice === proceed;
 }
 
+/** Runtime (EOL) risks just open the EOL page since no single package fixes them; others confirm then open the agent. */
 export async function askAgentFix(risk: RiskResult): Promise<void> {
   if (risk.tier === "eol") {
     const open = "Open EOL page";
@@ -133,6 +140,7 @@ export async function askAgentFix(risk: RiskResult): Promise<void> {
   await openAgentWithPrompt(prompt);
 }
 
+/** Copies the agent prompt without opening any chat. */
 export async function copyAgentPrompt(risk: RiskResult): Promise<void> {
   const prompt = buildAgentPrompt(risk);
   await vscode.env.clipboard.writeText(prompt);

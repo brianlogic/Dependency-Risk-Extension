@@ -4,6 +4,8 @@ import { isMajorBump, majorsBehind, pickSafeBumpForAdvisories } from "../util/ve
 import type { DepRiskConfig } from "../config";
 import type { PackageSignals, RiskResult, VulnSummary } from "../types";
 
+// Tier rules (see scorePackage): critical = any critical advisory, or a high one in a package the code imports;
+// high = any other advisory; stale = no advisories but far behind or unmaintained.
 function isCriticalVuln(v: VulnSummary): boolean {
   return v.hasPublicExploit || (v.cvssScore ?? 0) >= 9 || v.severity === "CRITICAL";
 }
@@ -16,6 +18,7 @@ function isHighVuln(v: VulnSummary): boolean {
   return score >= 7 && score < 9;
 }
 
+/** Sort weight so the most dangerous advisory is listed first (public exploit > CVSS > label). */
 function vulnerabilityRank(vulnerability: VulnSummary): number {
   if (vulnerability.hasPublicExploit) {
     return 100;
@@ -54,6 +57,11 @@ function usageLabel(pkg: PackageSignals["pkg"]): string {
  * High: any remaining known advisory.
  * Stale: >N majors behind or maintainer inactive.
  * EOL: runtime/framework within horizon (attached as a synthetic package result by pipeline).
+ */
+/**
+ * Assigns a tier and human-readable reasons from advisories + registry signals.
+ * An advisory in a package the code actually imports is escalated to critical when it is high severity.
+ * `recommendedBump` clears every advisory with a known fix; stale packages recommend the latest version.
  */
 export function scorePackage(
   signals: PackageSignals,
@@ -153,6 +161,7 @@ export function scorePackage(
   };
 }
 
+/** Synthetic "package" result for an EOL (or soon-EOL within `eolHorizonMonths`) Node/Python runtime; undefined if comfortably supported. */
 export function scoreRuntimeEol(
   eol: NonNullable<PackageSignals["runtimeEol"]>,
   cfg: DepRiskConfig
@@ -194,6 +203,7 @@ export function scoreRuntimeEol(
   };
 }
 
+/** Returns a copy of `signals` with latest version, majors behind and months since publish filled in. */
 export function attachRegistrySignals(
   signals: PackageSignals,
   latest: string | undefined,

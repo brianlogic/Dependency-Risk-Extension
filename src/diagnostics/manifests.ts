@@ -4,6 +4,7 @@ import type { ManifestConfig } from "./ManifestDiagnostics";
 import { findDependencyNameAtOffset, findDependencyOffsets } from "./packageJsonRanges";
 import { findPythonDependencyNameAtOffset, findPythonDependencyOffsets } from "./pythonRanges";
 
+// ManifestConfig for each ecosystem. npm names are exact; Python names are PEP 503-normalized.
 export const npmManifest: ManifestConfig = {
   collectionName: "depRisk",
   ecosystem: "npm",

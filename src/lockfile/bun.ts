@@ -52,6 +52,7 @@ export async function parseBunLockfile(lockfilePath: string): Promise<LockPackag
   return [...out.values()];
 }
 
+/** Splits a `name@version` locator at the `@` after the name (scoped names start with one); non-registry versions return undefined. */
 function bunLocator(spec: string): { name: string; version: string } | undefined {
   const at = spec.startsWith("@") ? spec.indexOf("@", 1) : spec.indexOf("@");
   if (at <= 0) {

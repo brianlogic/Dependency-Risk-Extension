@@ -1,14 +1,21 @@
+// Apply Safe Fix: rewrite the version spec in every matching manifest with one WorkspaceEdit (undoable).
 import * as vscode from "vscode";
 import { npmManifest, pythonManifest } from "../diagnostics/manifests";
 import type { RiskResult } from "../types";
 import { confirmRiskyBump } from "./askAgentFix";
 import { rewriteNpmManifest, rewritePythonManifest, type TextEdit } from "./rewriteSpec";
 
+// Same manifest globs the diagnostics use.
 const GLOBS = {
   npm: { include: npmManifest.include, exclude: npmManifest.exclude },
   pypi: { include: pythonManifest.include, exclude: pythonManifest.exclude },
 };
 
+/**
+ * Bumps (or downgrades) the package to `risk.recommendedBump` after confirming risky changes.
+ * Edits manifests only; the user re-runs their install to refresh the lockfile.
+ * Complex specs the rewriter can't handle are reported instead of guessed.
+ */
 export async function applySafeFix(risk: RiskResult): Promise<void> {
   const { name, ecosystem } = risk.signals.pkg;
   const target = risk.recommendedBump;

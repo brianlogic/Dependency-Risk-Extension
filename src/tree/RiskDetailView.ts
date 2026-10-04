@@ -60,6 +60,7 @@ export class RiskDetailView {
   }
 }
 
+// Rendering is plain HTML strings; the webview posts messages (openUrl / askAgent) back to the extension.
 function panelTitle(risk: RiskResult): string {
   return `${risk.signals.pkg.name}@${risk.signals.pkg.version}`;
 }

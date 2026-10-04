@@ -3,6 +3,7 @@ import { headline, packageGlance } from "./presentation";
 import { cssVar, escapeAttr, escapeHtml } from "./webviewHtml";
 import { TIER_LABEL, TIER_ORDER, type RiskResult, type RiskTier, type ScanSummary } from "../types";
 
+/** Sidebar webview: tier distribution bar plus the worst packages; clicking a row opens the detail panel. */
 export class OverviewView implements vscode.WebviewViewProvider {
   static readonly viewType = "depRisk.overview";
 
@@ -40,6 +41,7 @@ export class OverviewView implements vscode.WebviewViewProvider {
   }
 }
 
+// A per-render nonce for the webview CSP script tag.
 function renderOverview(webview: vscode.Webview, summary: ScanSummary | undefined): string {
   const nonce = String(Date.now());
   const body = summary ? overviewBody(summary) : `<p class="muted">Scan a folder with a lockfile to see the risk mix.</p>`;

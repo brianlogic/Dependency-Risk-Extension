@@ -5,8 +5,10 @@ import { nextPatchAfter } from "../util/version";
 import type { RiskCache } from "../cache/store";
 import { osvEcosystem, type Ecosystem, type PackageRef, type VulnSummary } from "../types";
 
+// OSV.dev API: querybatch returns only vuln ids per package; /vulns/{id} returns full records.
 const OSV_BATCH = "https://api.osv.dev/v1/querybatch";
 const OSV_VULN = "https://api.osv.dev/v1/vulns";
+// OSV accepts up to 1000 queries per querybatch request.
 const BATCH_SIZE = 1000;
 
 interface OsvBatchVulnRef {
@@ -49,6 +51,7 @@ interface OsvVuln {
   affected?: OsvAffected[];
 }
 
+/** Splits `arr` into groups of at most `size`. */
 function chunk<T>(arr: T[], size: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < arr.length; i += size) {
@@ -57,6 +60,7 @@ function chunk<T>(arr: T[], size: number): T[][] {
   return out;
 }
 
+/** Best-effort numeric CVSS score from OSV severity entries or database_specific, if any. */
 export function parseCvssScore(vuln: Pick<OsvVuln, "severity" | "database_specific">): number | undefined {
   for (const s of vuln.severity ?? []) {
     if (!s.score) {
@@ -98,6 +102,7 @@ export function parseCvssScore(vuln: Pick<OsvVuln, "severity" | "database_specif
   return undefined;
 }
 
+/** Prefers the database's own label; otherwise maps CVSS to the standard bands (9/7/4). */
 function severityFromScore(
   score: number | undefined,
   dbSeverity?: unknown
@@ -121,6 +126,7 @@ function severityFromScore(
   return "LOW";
 }
 
+/** Heuristic text match for a public exploit; explicit "no exploit" phrases veto it. */
 export function detectPublicExploit(vuln: Pick<OsvVuln, "details" | "references" | "database_specific">): boolean {
   const blob = `${vuln.details ?? ""} ${JSON.stringify(vuln.database_specific ?? {})}`.toLowerCase();
   if (
@@ -152,6 +158,10 @@ export function detectPublicExploit(vuln: Pick<OsvVuln, "details" | "references"
   );
 }
 
+/**
+ * Versions that fix this advisory for the given package only (an advisory can cover several).
+ * A `last_affected` boundary is turned into the next patch release.
+ */
 function fixedForPackage(vuln: OsvVuln, packageName: string, ecosystem: Ecosystem): string[] {
   const expected = osvEcosystem(ecosystem).toLowerCase();
   const fixed: string[] = [];
@@ -183,6 +193,7 @@ function fixedForPackage(vuln: OsvVuln, packageName: string, ecosystem: Ecosyste
   return [...new Set(fixed)];
 }
 
+/** Flattens a raw OSV record into the VulnSummary the rest of the extension uses. */
 export function toVulnSummary(
   raw: OsvVuln,
   packageName: string,
@@ -204,6 +215,7 @@ export function toVulnSummary(
   };
 }
 
+/** One ref per vuln id (later entries win). */
 function dedupeVulnRefs(refs: OsvBatchVulnRef[]): OsvBatchVulnRef[] {
   const map = new Map<string, OsvBatchVulnRef>();
   for (const r of refs) {
@@ -212,11 +224,16 @@ function dedupeVulnRefs(refs: OsvBatchVulnRef[]): OsvBatchVulnRef[] {
   return [...map.values()];
 }
 
+/** OSV.dev client with caching: per-package hits from cache, full records cached by id + modified time. */
 export class OsvClient {
   private readonly inFlightVulns = new Map<string, Promise<OsvVuln>>();
 
   constructor(private readonly cache: RiskCache) {}
 
+/**
+ * Returns vuln refs keyed by packageVersionKey. Cached packages are skipped unless `force`;
+ * the rest are sent in chunks and written back to the cache.
+ */
   async queryBatch(
     packages: PackageRef[],
     opts?: { force?: boolean }
@@ -263,6 +280,10 @@ export class OsvClient {
     return result;
   }
 
+/**
+ * Runs one querybatch chunk, following `next_page_token` for packages with many advisories
+ * (max 8 pages; throws if still unfinished). Result order matches `packages`.
+ */
   private async queryBatchWithPagination(packages: PackageRef[]): Promise<OsvBatchVulnRef[][]> {
     const accumulated: OsvBatchVulnRef[][] = packages.map(() => []);
     let active: Array<{ index: number; query: OsvQuery }> = packages.map((p, index) => ({
@@ -309,6 +330,10 @@ export class OsvClient {
     return accumulated;
   }
 
+/**
+ * Fetches full records for the given refs. The cache is keyed by id + modified, so updated
+ * advisories refetch; concurrent requests for the same id are shared. Withdrawn ones are dropped.
+ */
   async hydrateVulns(
     packageName: string,
     refs: OsvBatchVulnRef[],

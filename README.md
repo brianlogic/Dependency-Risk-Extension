@@ -44,6 +44,7 @@ In that window: Command Palette → **Dep Risk: Show Sidebar**, or open the **De
 | `Dep Risk: Show Sidebar` | Focus the Dep Risk view; scans if nothing is loaded yet |
 | `Dep Risk: Refresh` | Force a re-query of OSV and refresh the sidebar |
 | `Dep Risk: View Risk Details` | Open the advisory list for a package |
+| `Apply Safe Fix` | Rewrite the dependency's version in the manifest to the safe target (run your install afterwards to refresh the lockfile) |
 | `Ask Agent to Upgrade + Fix` | Pre-loaded upgrade prompt (safe target + tests) |
 | `Dep Risk: Copy Agent Prompt` | Copy that prompt without opening chat |
 | `Dep Risk: Open Advisory` | Open the OSV/GHSA page |
@@ -73,3 +74,5 @@ npm run verify
 ```
 
 `verify` typechecks, runs the tests, and compiles the extension. Then press F5 and use the fixture under `fixtures/sample-app`, or open any folder that has a lockfile.
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for how the code is organized.

@@ -1,6 +1,7 @@
 import type { RiskResult, RiskTier, ScanSummary } from "../types";
 import { isDowngrade } from "../util/version";
 
+// Presentation maps and text formatters shared by the tree, overview and detail views.
 export const TIER_THEME_COLOR: Record<RiskTier, string> = {
   critical: "charts.red",
   high: "charts.orange",
@@ -25,6 +26,7 @@ export const TIER_ICON_ID: Record<RiskTier, string> = {
   clear: "pass",
 };
 
+/** Highest-severity tier that has any results. */
 export function worstTier(summary: ScanSummary): RiskTier {
   if (summary.byTier.critical) {
     return "critical";
@@ -41,6 +43,7 @@ export function worstTier(summary: ScanSummary): RiskTier {
   return "clear";
 }
 
+/** Short usage word shown next to a package: runtime / imported / direct / transitive. */
 export function usageLabel(risk: RiskResult): string {
   const pkg = risk.signals.pkg;
   if (pkg.name === risk.signals.runtimeEol?.product) {

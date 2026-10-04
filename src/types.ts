@@ -1,5 +1,6 @@
 export type Ecosystem = "npm" | "pypi";
 
+/** Ecosystem name as the OSV API spells it. */
 export function osvEcosystem(ecosystem: Ecosystem): string {
   return ecosystem === "pypi" ? "PyPI" : "npm";
 }
@@ -74,6 +75,7 @@ export interface ScanSummary {
   errors: string[];
 }
 
+// Tiers from most to least severe; the order drives sorting and display.
 export const TIER_ORDER: RiskTier[] = ["critical", "high", "stale", "eol", "clear"];
 
 export const TIER_LABEL: Record<RiskTier, string> = {

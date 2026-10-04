@@ -1,6 +1,8 @@
+// Matches import/export-from/require()/dynamic import() specifiers. Type-only imports are ignored (no runtime use).
 const IMPORT_RE =
   /(?:(?:import|export)(?!\s+type\b)\s+(?:[\s\S]*?\s+from\s+)?|require\s*\(\s*|import\s*\(\s*)['"]([^'"]+)['"]/g;
 
+/** Package name from an import specifier; relative, absolute and `node:` builtins return undefined. */
 export function packageNameFromSpecifier(spec: string): string | undefined {
   if (!spec || spec.startsWith(".") || spec.startsWith("/") || spec.startsWith("node:")) {
     return undefined;

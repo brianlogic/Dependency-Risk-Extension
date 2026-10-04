@@ -8,6 +8,7 @@ import {
   type RegistryClient,
 } from "./meta";
 
+// npm registry client. Metadata comes from the full packument; the raw response is cached.
 const REGISTRY = "https://registry.npmjs.org";
 
 export type NpmPackageMeta = PackageRegistryMeta;
@@ -19,6 +20,7 @@ interface NpmRegistryResponse {
   repository?: { url?: string } | string;
 }
 
+/** Scoped names keep the `@scope` and encode the slash (`@a/b` -> `@a%2Fb`), as the registry expects. */
 function encodeNpmName(name: string): string {
   if (name.startsWith("@")) {
     const slash = name.indexOf("/");
@@ -30,6 +32,7 @@ function encodeNpmName(name: string): string {
   return encodeURIComponent(name);
 }
 
+/** `latest` dist-tag and its publish time from the npm registry. */
 export class NpmRegistry implements RegistryClient {
   constructor(private readonly cache: RiskCache) {}
 

@@ -1,5 +1,7 @@
+// Link and text helpers for presenting advisories in the UI.
 import type { VulnSummary } from "../types";
 
+/** Prefers the GitHub advisory page when a GHSA id exists, else the osv.dev page. */
 export function advisoryUrl(vuln: Pick<VulnSummary, "id" | "aliases">): string {
   const ghsa =
     vuln.aliases.find((alias) => alias.startsWith("GHSA-")) ??
@@ -10,6 +12,7 @@ export function advisoryUrl(vuln: Pick<VulnSummary, "id" | "aliases">): string {
   return `https://osv.dev/vulnerability/${vuln.id}`;
 }
 
+/** Plain-text excerpt of advisory markdown (code blocks, images, link targets and markup stripped), truncated to `max`. */
 export function excerptDetails(details?: string, max = 720): string | undefined {
   if (!details?.trim()) {
     return undefined;
@@ -27,6 +30,7 @@ export function excerptDetails(details?: string, max = 720): string | undefined 
   return text.length > max ? `${text.slice(0, max).trimEnd()}…` : text;
 }
 
+/** Up to 8 de-duplicated http(s) links: advisory page, CVE aliases, then advisory references. */
 export function readingLinks(vuln: VulnSummary): { label: string; url: string }[] {
   const links: { label: string; url: string }[] = [];
   const seen = new Set<string>();
@@ -50,6 +54,7 @@ export function readingLinks(vuln: VulnSummary): { label: string; url: string }[
   return links.slice(0, 8);
 }
 
+/** Friendly label for a URL: known hosts by name, otherwise the hostname. */
 function linkLabel(url: string): string {
   try {
     const host = new URL(url).hostname.replace(/^www\./, "");

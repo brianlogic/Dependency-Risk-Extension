@@ -5,6 +5,7 @@ import { riskResourceUri, themeIcon } from "./decorations";
 import { headline, packageGlance, packageTooltip, reasonIcon, usageLabel, worstTier } from "./presentation";
 import { TIER_LABEL, TIER_ORDER, type RiskResult, type RiskTier, type ScanSummary, type VulnSummary } from "../types";
 
+// Tree structure: Summary / scan-warning / Tier -> Package -> Advisory + Reason rows. Items carry `risk` so commands get it as their argument.
 export type DepRiskTreeItem = SummaryItem | TierItem | PackageItem | AdvisoryItem | ReasonItem | MessageItem;
 
 export class MessageItem extends vscode.TreeItem {
@@ -118,6 +119,7 @@ export class ReasonItem extends vscode.TreeItem {
   }
 }
 
+/** Tree data for both the sidebar and Explorer views; `setSummary` swaps the data and refreshes. */
 export class DepRiskTreeProvider implements vscode.TreeDataProvider<DepRiskTreeItem> {
   private summary: ScanSummary | undefined;
   private readonly _onDidChange = new vscode.EventEmitter<DepRiskTreeItem | undefined | void>();

@@ -33,6 +33,7 @@ const EMPTY: CacheFile = {
   eol: {},
 };
 
+/** JSON-file cache: lazily loaded, writes are debounced and atomic, `flush` forces a save (called at scan end). */
 export class RiskCache {
   private data: CacheFile = structuredClone(EMPTY);
   private loaded = false;
@@ -42,6 +43,7 @@ export class RiskCache {
 
   constructor(private readonly cachePath: string) {}
 
+/** Loads the file once; a missing or corrupt cache silently starts empty. */
   async init(): Promise<void> {
     if (this.loaded) {
       return;

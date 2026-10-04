@@ -1,3 +1,7 @@
+/**
+ * Extension entry point. Wires views, commands, diagnostics and scan triggers together.
+ * Module-level state is intentional: VS Code activates one instance per window.
+ */
 import * as vscode from "vscode";
 import { getConfig } from "./config";
 import { applySafeFix } from "./commands/applySafeFix";
@@ -14,6 +18,7 @@ import { RiskDetailView } from "./tree/RiskDetailView";
 import { headline } from "./tree/presentation";
 import type { RiskResult, ScanSummary } from "./types";
 
+// Scan state: at most one scan runs at a time; requests during a scan collapse into `pendingScan`.
 let pipeline: ScanPipeline | undefined;
 let statusBar: vscode.StatusBarItem;
 let dailyTimer: NodeJS.Timeout | undefined;
@@ -28,6 +33,7 @@ let diagnostics: ManifestDiagnostics;
 let pythonDiagnostics: ManifestDiagnostics;
 let lockWatcher: vscode.FileSystemWatcher | undefined;
 
+/** Registers all UI and commands synchronously, then binds the first workspace folder in the background. */
 export function activate(context: vscode.ExtensionContext): void {
   // Register tree views before any await so Cursor/VS Code never shows
   // "There is no data provider registered that can provide view data."
@@ -136,6 +142,7 @@ export function activate(context: vscode.ExtensionContext): void {
   });
 }
 
+/** Cancels any running scan and releases timers/watchers (other disposables are in context.subscriptions). */
 export function deactivate(): void {
   scanCancellation?.cancel();
   if (dailyTimer) {
@@ -144,6 +151,10 @@ export function deactivate(): void {
   lockWatcher?.dispose();
 }
 
+/**
+ * (Re)binds to the first workspace folder: creates its pipeline, watches manifests/lockfiles
+ * for changes, restarts the daily timer and kicks off a scan. With no folder, clears all UI.
+ */
 async function bindWorkspace(): Promise<void> {
   const folder = vscode.workspace.workspaceFolders?.[0];
   const folderChanged = activeFolder?.uri.toString() !== folder?.uri.toString();
@@ -191,6 +202,7 @@ async function bindWorkspace(): Promise<void> {
   void runScan(folder, false);
 }
 
+/** Active folder, or undefined (with an optional warning) when no folder is open. */
 function requireFolder(showWarning = true): vscode.WorkspaceFolder | undefined {
   const folder = activeFolder ?? vscode.workspace.workspaceFolders?.[0];
   if (!folder) {
@@ -204,6 +216,7 @@ function requireFolder(showWarning = true): vscode.WorkspaceFolder | undefined {
   return folder;
 }
 
+/** Restarts the periodic forced rescan using `depRisk.dailyRescanHours` (minimum 1h). */
 function resetDailyTimer(): void {
   if (dailyTimer) {
     clearInterval(dailyTimer);
@@ -221,6 +234,10 @@ function resetDailyTimer(): void {
   );
 }
 
+/**
+ * Single-flight scan. If one is running, remember the request (forcing wins) and re-run once
+ * it finishes. Results are dropped if the scan was cancelled or the folder changed meanwhile.
+ */
 function runScan(folder: vscode.WorkspaceFolder, force: boolean): Thenable<void> {
   if (scanInFlight) {
     pendingScan = {
@@ -297,6 +314,7 @@ function runScan(folder: vscode.WorkspaceFolder, force: boolean): Thenable<void>
   return scanInFlight;
 }
 
+/** Status bar: per-tier counts with icons; warning icon when some sources failed. */
 function updateStatus(summary: ScanSummary): void {
   const parts: string[] = [];
   if (summary.byTier.critical) {
@@ -325,6 +343,7 @@ function updateStatus(summary: ScanSummary): void {
     .join("\n");
 }
 
+/** Quick pick fallback for commands invoked from the palette instead of a tree row. */
 async function pickRisk() {
   const summary = tree.getSummary();
   if (!summary?.results.length) {
@@ -343,6 +362,7 @@ async function pickRisk() {
   return picked?.risk;
 }
 
+/** Focuses the Dep Risk view in whichever container exists (Cursor may only show the Explorer one). */
 async function focusDepRiskView(): Promise<void> {
   for (const command of ["depRisk.sidebar.focus", "depRisk.explorer.focus"]) {
     try {
@@ -354,6 +374,7 @@ async function focusDepRiskView(): Promise<void> {
   }
 }
 
+/** Trailing-edge debounce. */
 function debounce(fn: () => void, ms: number): () => void {
   let t: NodeJS.Timeout | undefined;
   return () => {

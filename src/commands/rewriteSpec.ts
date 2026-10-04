@@ -1,12 +1,15 @@
+// Pure text rewriters for manifests: return edits, never touch files (applySafeFix applies them).
 import { findNodeAtLocation, parseTree } from "jsonc-parser";
 import { findPythonDependencyOffsets } from "../diagnostics/pythonRanges";
 
+/** Replace [start, end) of the document with `text`. */
 export interface TextEdit {
   start: number;
   end: number;
   text: string;
 }
 
+// Only plain `1.2.3`-style specs (optional ^ ~ >= = prefix) are rewritten; ranges, tags and URLs are left alone.
 const NPM_SECTIONS = ["dependencies", "devDependencies", "optionalDependencies"];
 const SIMPLE_NPM = /^([\^~]|>=|=)?(\d+(?:\.\d+){0,2}(?:-[\w.]+)?)$/;
 
