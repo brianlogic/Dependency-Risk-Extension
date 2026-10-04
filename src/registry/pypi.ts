@@ -1,5 +1,6 @@
 import { fetchJson } from "../util/http";
 import type { RiskCache } from "../cache/store";
+import { packageNameKey } from "../util/packageKey";
 import {
   REGISTRY_META_TTL_MS,
   normalizeRepoUrl,
@@ -8,7 +9,7 @@ import {
   type RegistryClient,
 } from "./meta";
 
-// PyPI JSON API client. Metadata comes from /pypi/{name}/json; the raw response is cached.
+// PyPI JSON API client. Metadata comes from /pypi/{name}/json; only the fields we use are cached.
 const REGISTRY = "https://pypi.org/pypi";
 
 export type PypiPackageMeta = PackageRegistryMeta;
@@ -27,9 +28,10 @@ export class PypiRegistry implements RegistryClient {
   constructor(private readonly cache: RiskCache) {}
 
   async getMeta(name: string, opts?: { force?: boolean }): Promise<PypiPackageMeta | undefined> {
-    const cached = opts?.force ? undefined : this.cache.getPypiMeta(name, REGISTRY_META_TTL_MS);
+    const key = packageNameKey({ ecosystem: "pypi", name });
+    const cached = opts?.force ? undefined : this.cache.getMeta(key, REGISTRY_META_TTL_MS);
     if (cached) {
-      return fromCached(cached.latest, cached.raw as PypiResponse);
+      return cached;
     }
 
     const raw = await fetchJson<PypiResponse>(`${REGISTRY}/${encodeURIComponent(name)}/json`, {
@@ -39,9 +41,9 @@ export class PypiRegistry implements RegistryClient {
     if (!latest) {
       return undefined;
     }
-    const lastPublish = uploadTime(raw, latest);
-    this.cache.setPypiMeta(name, latest, lastPublish, raw);
-    return fromCached(latest, raw);
+    const meta = toMeta(latest, raw);
+    this.cache.setMeta(key, meta);
+    return meta;
   }
 
   changelogUrl(name: string, meta?: PypiPackageMeta): string {
@@ -49,8 +51,8 @@ export class PypiRegistry implements RegistryClient {
   }
 }
 
-/** Builds metadata from a raw response; the repository URL is guessed from project_urls in priority order. */
-function fromCached(latest: string, raw: PypiResponse): PypiPackageMeta {
+/** Reduces a raw response to the fields we keep; the repository URL is guessed from project_urls in priority order. */
+function toMeta(latest: string, raw: PypiResponse): PypiPackageMeta {
   const urls = raw.info?.project_urls ?? {};
   const repositoryUrl =
     firstUrl(urls, ["Source", "Repository", "Homepage", "Home", "Code"]) ??

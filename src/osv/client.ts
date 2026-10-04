@@ -244,7 +244,7 @@ export class OsvClient {
     for (const pkg of packages) {
       const key = packageVersionKey(pkg);
       if (!opts?.force) {
-        const hit = this.cache.getPackageHit(pkg.name, pkg.version, undefined, pkg.ecosystem);
+        const hit = this.cache.getPackageHit(key);
         if (hit) {
           result.set(
             key,
@@ -266,14 +266,9 @@ export class OsvClient {
             modifiedById[v.id] = v.modified;
           }
         }
-        this.cache.setPackageHit(
-          pkg.name,
-          pkg.version,
-          vulns.map((v) => v.id),
-          modifiedById,
-          pkg.ecosystem
-        );
-        result.set(packageVersionKey(pkg), vulns);
+        const key = packageVersionKey(pkg);
+        this.cache.setPackageHit(key, vulns.map((v) => v.id), modifiedById);
+        result.set(key, vulns);
       });
     }
 

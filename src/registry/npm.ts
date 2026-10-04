@@ -1,5 +1,6 @@
 import { fetchJson } from "../util/http";
 import type { RiskCache } from "../cache/store";
+import { packageNameKey } from "../util/packageKey";
 import {
   REGISTRY_META_TTL_MS,
   normalizeRepoUrl,
@@ -8,7 +9,7 @@ import {
   type RegistryClient,
 } from "./meta";
 
-// npm registry client. Metadata comes from the full packument; the raw response is cached.
+// npm registry client. Metadata comes from the full packument; only the fields we use are cached.
 const REGISTRY = "https://registry.npmjs.org";
 
 export type NpmPackageMeta = PackageRegistryMeta;
@@ -37,33 +38,27 @@ export class NpmRegistry implements RegistryClient {
   constructor(private readonly cache: RiskCache) {}
 
   async getMeta(name: string, opts?: { force?: boolean }): Promise<NpmPackageMeta | undefined> {
-    const cached = opts?.force ? undefined : this.cache.getNpmMeta(name, REGISTRY_META_TTL_MS);
+    const key = packageNameKey({ ecosystem: "npm", name });
+    const cached = opts?.force ? undefined : this.cache.getMeta(key, REGISTRY_META_TTL_MS);
     if (cached) {
-      const raw = cached.raw as NpmRegistryResponse;
-      return {
-        latest: cached.latest,
-        lastPublish: raw.time?.[cached.latest],
-        homepage: raw.homepage,
-        repositoryUrl: normalizeRepoUrl(raw.repository),
-      };
+      return cached;
     }
 
     const raw = await fetchJson<NpmRegistryResponse>(`${REGISTRY}/${encodeNpmName(name)}`, {
       timeoutMs: 20_000,
     });
-
     const latest = raw["dist-tags"]?.latest;
     if (!latest) {
       return undefined;
     }
-    const lastPublish = raw.time?.[latest];
-    this.cache.setNpmMeta(name, latest, lastPublish, raw);
-    return {
+    const meta: NpmPackageMeta = {
       latest,
-      lastPublish,
+      lastPublish: raw.time?.[latest],
       homepage: raw.homepage,
       repositoryUrl: normalizeRepoUrl(raw.repository),
     };
+    this.cache.setMeta(key, meta);
+    return meta;
   }
 
   changelogUrl(name: string, meta?: NpmPackageMeta): string {

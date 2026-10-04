@@ -56,7 +56,7 @@ A failure in one package or source is recorded in `ScanSummary.errors` rather th
 
 ### Cache
 
-`RiskCache` persists to `.dep-risk/cache.json` with tables for per-version advisory ids, full advisories (keyed by id + modified time), npm and PyPI metadata (12 h TTL) and EOL data (24 h TTL). Writes are debounced and atomic (temp file + rename). A forced refresh bypasses it.
+`RiskCache` persists to `.dep-risk/cache.json` with tables for per-version advisory ids, full advisories (keyed by id + modified time), registry metadata reduced to latest version, last publish and repo/homepage URLs (12 h TTL) and EOL data (24 h TTL). Writes are debounced and atomic (temp file + rename). A forced refresh bypasses it.
 
 ## From results to UI
 

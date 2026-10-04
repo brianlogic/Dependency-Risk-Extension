@@ -1,106 +1,74 @@
 import * as fs from "fs/promises";
 import * as path from "path";
-import { packageVersionKey } from "../util/packageKey";
+import type { PackageRegistryMeta } from "../registry/meta";
+
+/** Hits older than this are re-queried from OSV. */
+const PACKAGE_HIT_TTL_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Persistent cache in a hidden workspace folder (.dep-risk/cache.json).
- * SQLite-shaped tables without native bindings (reliable across Electron hosts).
+ * Plain JSON tables without native bindings (reliable across Electron hosts).
+ * Stores only what the scan reads back, never whole registry responses.
  */
 interface CacheFile {
-  version: 1;
-  packageHits: Record<
-    string,
-    { vulnIds: string[]; modifiedById: Record<string, string>; cachedAt: number }
-  >;
-  vulns: Record<string, { modified: string; json: string; cachedAt: number }>;
-  npmMeta: Record<
-    string,
-    { latest: string; modified?: string; json: string; cachedAt: number }
-  >;
-  pypiMeta: Record<
-    string,
-    { latest: string; modified?: string; json: string; cachedAt: number }
-  >;
-  eol: Record<string, { json: string; cachedAt: number }>;
+  version: 2;
+  /** Advisory ids per `ecosystem:name@version`. */
+  packageHits: Record<string, { vulnIds: string[]; modifiedById: Record<string, string>; cachedAt: number }>;
+  /** Full OSV records by id; `modified` invalidates a stale record. */
+  vulns: Record<string, { modified: string; vuln: unknown }>;
+  /** Registry metadata per `ecosystem:name`. */
+  meta: Record<string, { meta: PackageRegistryMeta; cachedAt: number }>;
+  eol: Record<string, { data: unknown; cachedAt: number }>;
 }
 
-const EMPTY: CacheFile = {
-  version: 1,
-  packageHits: {},
-  vulns: {},
-  npmMeta: {},
-  pypiMeta: {},
-  eol: {},
-};
+const emptyCache = (): CacheFile => ({ version: 2, packageHits: {}, vulns: {}, meta: {}, eol: {} });
 
 /** JSON-file cache: lazily loaded, writes are debounced and atomic, `flush` forces a save (called at scan end). */
 export class RiskCache {
-  private data: CacheFile = structuredClone(EMPTY);
+  private data = emptyCache();
   private loaded = false;
   private dirty = false;
   private saveTimer: NodeJS.Timeout | undefined;
-  private flushPromise: Promise<void> | undefined;
+  private writing: Promise<void> = Promise.resolve();
 
   constructor(private readonly cachePath: string) {}
 
-/** Loads the file once; a missing or corrupt cache silently starts empty. */
+  /** Loads the file once; a missing, corrupt or old-format cache silently starts empty. */
   async init(): Promise<void> {
     if (this.loaded) {
       return;
     }
     try {
-      await fs.mkdir(path.dirname(this.cachePath), { recursive: true });
-      const raw = await fs.readFile(this.cachePath, "utf8");
-      const parsed = JSON.parse(raw) as CacheFile;
-      if (parsed?.version === 1) {
-        this.data = { ...EMPTY, ...parsed, pypiMeta: parsed.pypiMeta ?? {} };
+      const parsed = JSON.parse(await fs.readFile(this.cachePath, "utf8")) as CacheFile;
+      if (parsed?.version === 2) {
+        this.data = parsed;
       }
     } catch {
-      this.data = structuredClone(EMPTY);
+      // start empty
     }
     this.loaded = true;
   }
 
   private scheduleSave(): void {
     this.dirty = true;
-    if (this.saveTimer) {
-      return;
-    }
-    this.saveTimer = setTimeout(() => {
-      void this.flush();
-    }, 500);
+    this.saveTimer ??= setTimeout(() => void this.flush().catch(() => undefined), 500);
   }
 
   async flush(): Promise<void> {
-    if (this.saveTimer) {
-      clearTimeout(this.saveTimer);
-      this.saveTimer = undefined;
-    }
-    if (this.flushPromise) {
-      await this.flushPromise;
-      if (this.dirty) {
-        await this.flush();
-      }
-      return;
-    }
+    clearTimeout(this.saveTimer);
+    this.saveTimer = undefined;
     if (!this.dirty) {
-      return;
+      return this.writing;
     }
-
     const payload = JSON.stringify(this.data);
     this.dirty = false;
-    this.flushPromise = this.writeAtomically(payload);
+    // Serialized so two flushes never share the temp file.
+    this.writing = this.writing.catch(() => undefined).then(() => this.writeAtomically(payload));
     try {
-      await this.flushPromise;
+      await this.writing;
     } catch (error) {
       this.dirty = true;
       throw error;
-    } finally {
-      this.flushPromise = undefined;
-    }
-
-    if (this.dirty) {
-      await this.flush();
     }
   }
 
@@ -115,122 +83,43 @@ export class RiskCache {
     }
   }
 
-  getPackageHit(
-    name: string,
-    version: string,
-    maxAgeMs = 24 * 60 * 60 * 1000,
-    ecosystem = "npm"
-  ): { vulnIds: string[]; modifiedById: Record<string, string> } | undefined {
-    const row =
-      this.data.packageHits[packageVersionKey({ ecosystem, name, version })] ??
-      (ecosystem === "npm" ? this.data.packageHits[`${name}@${version}`] : undefined);
-    if (!row || Date.now() - row.cachedAt > maxAgeMs) {
-      return undefined;
-    }
-    return row;
+  getPackageHit(key: string): { vulnIds: string[]; modifiedById: Record<string, string> } | undefined {
+    const row = this.data.packageHits[key];
+    return row && Date.now() - row.cachedAt <= PACKAGE_HIT_TTL_MS ? row : undefined;
   }
 
-  setPackageHit(
-    name: string,
-    version: string,
-    vulnIds: string[],
-    modifiedById: Record<string, string>,
-    ecosystem = "npm"
-  ): void {
-    this.data.packageHits[packageVersionKey({ ecosystem, name, version })] = {
-      vulnIds,
-      modifiedById,
-      cachedAt: Date.now(),
-    };
+  setPackageHit(key: string, vulnIds: string[], modifiedById: Record<string, string>): void {
+    this.data.packageHits[key] = { vulnIds, modifiedById, cachedAt: Date.now() };
     this.scheduleSave();
   }
 
   getVuln(id: string, modified?: string): unknown | undefined {
     const row = this.data.vulns[id];
-    if (!row) {
-      return undefined;
-    }
-    if (modified && row.modified && row.modified !== modified) {
-      return undefined;
-    }
-    try {
-      return JSON.parse(row.json);
-    } catch {
-      return undefined;
-    }
+    return row && !(modified && row.modified && row.modified !== modified) ? row.vuln : undefined;
   }
 
-  setVuln(id: string, modified: string, payload: unknown): void {
-    this.data.vulns[id] = {
-      modified,
-      json: JSON.stringify(payload),
-      cachedAt: Date.now(),
-    };
+  setVuln(id: string, modified: string, vuln: unknown): void {
+    this.data.vulns[id] = { modified, vuln };
     this.scheduleSave();
   }
 
-  getNpmMeta(name: string, maxAgeMs: number): { latest: string; modified?: string; raw: unknown } | undefined {
-    return this.getRegistryMeta(this.data.npmMeta, name, maxAgeMs);
+  getMeta(key: string, maxAgeMs: number): PackageRegistryMeta | undefined {
+    const row = this.data.meta[key];
+    return row && Date.now() - row.cachedAt <= maxAgeMs ? row.meta : undefined;
   }
 
-  getPypiMeta(name: string, maxAgeMs: number): { latest: string; modified?: string; raw: unknown } | undefined {
-    return this.getRegistryMeta(this.data.pypiMeta, name, maxAgeMs);
-  }
-
-  setPypiMeta(name: string, latest: string, modified: string | undefined, raw: unknown): void {
-    this.setRegistryMeta(this.data.pypiMeta, name, latest, modified, raw);
-  }
-
-  setNpmMeta(name: string, latest: string, modified: string | undefined, raw: unknown): void {
-    this.setRegistryMeta(this.data.npmMeta, name, latest, modified, raw);
-  }
-
-  private getRegistryMeta(
-    table: CacheFile["npmMeta"],
-    name: string,
-    maxAgeMs: number
-  ): { latest: string; modified?: string; raw: unknown } | undefined {
-    const row = table[name];
-    if (!row || Date.now() - row.cachedAt > maxAgeMs) {
-      return undefined;
-    }
-    try {
-      return { latest: row.latest, modified: row.modified, raw: JSON.parse(row.json) };
-    } catch {
-      return undefined;
-    }
-  }
-
-  private setRegistryMeta(
-    table: CacheFile["npmMeta"],
-    name: string,
-    latest: string,
-    modified: string | undefined,
-    raw: unknown
-  ): void {
-    table[name] = {
-      latest,
-      modified,
-      json: JSON.stringify(raw),
-      cachedAt: Date.now(),
-    };
+  setMeta(key: string, meta: PackageRegistryMeta): void {
+    this.data.meta[key] = { meta, cachedAt: Date.now() };
     this.scheduleSave();
   }
 
   getEol(key: string, maxAgeMs: number): unknown | undefined {
     const row = this.data.eol[key];
-    if (!row || Date.now() - row.cachedAt > maxAgeMs) {
-      return undefined;
-    }
-    try {
-      return JSON.parse(row.json);
-    } catch {
-      return undefined;
-    }
+    return row && Date.now() - row.cachedAt <= maxAgeMs ? row.data : undefined;
   }
 
-  setEol(key: string, payload: unknown): void {
-    this.data.eol[key] = { json: JSON.stringify(payload), cachedAt: Date.now() };
+  setEol(key: string, data: unknown): void {
+    this.data.eol[key] = { data, cachedAt: Date.now() };
     this.scheduleSave();
   }
 }
