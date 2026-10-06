@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 
+/** Typed view of the `depRisk.*` settings declared in package.json. */
 export interface DepRiskConfig {
   autoScanOnLockfileChange: boolean;
   dailyRescanHours: number;
@@ -10,6 +11,7 @@ export interface DepRiskConfig {
   maxPackagesPerScan: number;
 }
 
+/** Reads settings fresh each call so edits apply without a reload; defaults mirror package.json. */
 export function getConfig(): DepRiskConfig {
   const cfg = vscode.workspace.getConfiguration("depRisk");
   return {

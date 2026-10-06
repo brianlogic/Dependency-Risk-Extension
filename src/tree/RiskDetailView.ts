@@ -1,7 +1,10 @@
 import * as vscode from "vscode";
 import { excerptDetails, readingLinks } from "../osv/urls";
-import { TIER_LABEL, type RiskResult, type RiskTier, type VulnSummary } from "../types";
+import { TIER_LABEL, type RiskResult, type VulnSummary } from "../types";
+import { openUrl } from "../util/openUrl";
+import { isDowngrade } from "../util/version";
 import { packageGlance, usageLabel } from "./presentation";
+import { cssVar, escapeAttr, escapeHtml } from "./webviewHtml";
 
 /**
  * Editor tab that lists every advisory on a package, with click-through to the source.
@@ -30,7 +33,11 @@ export class RiskDetailView {
     this.risk = risk;
     this.panel.webview.onDidReceiveMessage((message: { type?: string; url?: string }) => {
       if (message.type === "openUrl" && message.url) {
-        void vscode.env.openExternal(vscode.Uri.parse(message.url));
+        void openUrl(message.url);
+        return;
+      }
+      if (message.type === "applySafeFix") {
+        void vscode.commands.executeCommand("depRisk.applySafeFix", { risk: this.risk });
         return;
       }
       if (message.type === "askAgent") {
@@ -57,6 +64,7 @@ export class RiskDetailView {
   }
 }
 
+// Rendering is plain HTML strings; the webview posts messages (openUrl / askAgent) back to the extension.
 function panelTitle(risk: RiskResult): string {
   return `${risk.signals.pkg.name}@${risk.signals.pkg.version}`;
 }
@@ -71,7 +79,8 @@ function renderDetail(webview: vscode.Webview, risk: RiskResult): string {
 
   const bump = risk.recommendedBump
     ? `<div class="fix">Safe target <code>${escapeHtml(risk.recommendedBump)}</code>${
-        risk.isMajorBump ? " <span class=\"warn\">major</span>" : ""
+        (risk.isMajorBump ? " <span class=\"warn\">major</span>" : "") +
+        (isDowngrade(risk) ? " <span class=\"warn\">downgrade</span>" : "")
       }</div>`
     : "";
 
@@ -82,7 +91,7 @@ function renderDetail(webview: vscode.Webview, risk: RiskResult): string {
   const ask =
     risk.tier === "eol"
       ? ""
-      : `<button type="button" class="secondary" data-action="ask">Ask Agent to Upgrade + Fix</button>`;
+      : `${risk.recommendedBump ? `<button type="button" data-action="safeFix">Apply Safe Fix</button>` : ""}<button type="button" class="secondary" data-action="ask">Ask Agent to Upgrade + Fix</button>`;
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -178,6 +187,10 @@ function renderDetail(webview: vscode.Webview, risk: RiskResult): string {
       const target = event.target.closest("[data-url], [data-action]");
       if (!target) { return; }
       event.preventDefault();
+      if (target.dataset.action === "safeFix") {
+        vscode.postMessage({ type: "applySafeFix" });
+        return;
+      }
       if (target.dataset.action === "ask") {
         vscode.postMessage({ type: "askAgent" });
         return;
@@ -218,27 +231,3 @@ function linkButton(url: string, label: string, kind?: "secondary"): string {
   return `<button type="button" class="btn${kind ? ` ${kind}` : ""}" data-url="${escapeAttr(url)}">${escapeHtml(label)}</button>`;
 }
 
-function cssVar(tier: RiskTier): string {
-  return tier === "critical" ? "crit" : tier;
-}
-
-function escapeHtml(value: string): string {
-  return value.replace(/[&<>"']/g, (char) => {
-    switch (char) {
-      case "&":
-        return "&amp;";
-      case "<":
-        return "&lt;";
-      case ">":
-        return "&gt;";
-      case '"':
-        return "&quot;";
-      default:
-        return "&#39;";
-    }
-  });
-}
-
-function escapeAttr(value: string): string {
-  return escapeHtml(value);
-}

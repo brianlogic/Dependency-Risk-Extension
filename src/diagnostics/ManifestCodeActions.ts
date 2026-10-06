@@ -1,12 +1,16 @@
+// Quick fixes (lightbulb) on Dep Risk diagnostics and on dependency lines under the cursor.
 import * as vscode from "vscode";
 import type { RiskResult } from "../types";
+import { isDowngrade } from "../util/version";
 
+/** What ManifestDiagnostics exposes to the code action provider. */
 export interface RiskLookup {
   getRiskForDiagnostic(diagnostic: vscode.Diagnostic): RiskResult | undefined;
   findRiskAt(document: vscode.TextDocument, range: vscode.Range): RiskResult | undefined;
 }
 
-export class PackageJsonCodeActions implements vscode.CodeActionProvider {
+/** Offers Apply Safe Fix, Ask Agent and Open Advisory/Changelog for a risk; each action only invokes a depRisk.* command. */
+export class ManifestCodeActions implements vscode.CodeActionProvider {
   constructor(private readonly lookups: RiskLookup[]) {}
 
   provideCodeActions(
@@ -40,6 +44,7 @@ export class PackageJsonCodeActions implements vscode.CodeActionProvider {
   }
 }
 
+/** Adds the actions for one risk, once per package@version:tier even if both a diagnostic and the cursor match. */
 function pushActions(
   actions: vscode.CodeAction[],
   seen: Set<string>,
@@ -52,6 +57,19 @@ function pushActions(
   }
   seen.add(key);
 
+  if (risk.tier !== "eol" && risk.recommendedBump) {
+    const fix = new vscode.CodeAction(
+      `Apply Safe Fix: ${risk.signals.pkg.name} → ${risk.recommendedBump}${isDowngrade(risk) ? " (downgrade)" : ""}`,
+      vscode.CodeActionKind.QuickFix
+    );
+    fix.command = { command: "depRisk.applySafeFix", title: fix.title, arguments: [{ risk }] };
+    fix.isPreferred = risk.tier === "critical" || risk.tier === "high";
+    if (diagnostic) {
+      fix.diagnostics = [diagnostic];
+    }
+    actions.push(fix);
+  }
+
   if (risk.tier !== "eol") {
     const ask = new vscode.CodeAction(
       `Ask Agent to Upgrade + Fix ${risk.signals.pkg.name}`,
@@ -62,7 +80,6 @@ function pushActions(
       title: ask.title,
       arguments: [{ risk }],
     };
-    ask.isPreferred = risk.tier === "critical" || risk.tier === "high";
     if (diagnostic) {
       ask.diagnostics = [diagnostic];
     }

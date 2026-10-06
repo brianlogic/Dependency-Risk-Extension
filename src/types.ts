@@ -1,12 +1,11 @@
 export type Ecosystem = "npm" | "pypi";
 
+/** Ecosystem name as the OSV API spells it. */
 export function osvEcosystem(ecosystem: Ecosystem): string {
   return ecosystem === "pypi" ? "PyPI" : "npm";
 }
 
-export type RiskTier = "critical" | "high" | "stale" | "eol" | "clear";
-
-export type UsageKind = "direct" | "transitive";
+export type RiskTier = "critical" | "high" | "stale" | "eol";
 
 export interface PackageRef {
   name: string;
@@ -16,7 +15,6 @@ export interface PackageRef {
   direct: boolean;
   /** True when workspace source appears to import/require this package. */
   imported: boolean;
-  usage: UsageKind;
 }
 
 export interface VulnSummary {
@@ -66,11 +64,6 @@ export interface RiskResult {
   signals: PackageSignals;
 }
 
-export interface ScanProgress {
-  phase: string;
-  detail?: string;
-}
-
 export interface ScanSummary {
   scannedAt: number;
   packageCount: number;
@@ -79,20 +72,12 @@ export interface ScanSummary {
   errors: string[];
 }
 
-export const TIER_ORDER: RiskTier[] = ["critical", "high", "stale", "eol", "clear"];
+// Tiers from most to least severe; the order drives sorting and display.
+export const TIER_ORDER: RiskTier[] = ["critical", "high", "stale", "eol"];
 
 export const TIER_LABEL: Record<RiskTier, string> = {
   critical: "Critical",
   high: "High",
   stale: "Stale",
   eol: "EOL-adjacent",
-  clear: "Clear",
-};
-
-export const TIER_ICON: Record<RiskTier, string> = {
-  critical: "flame",
-  high: "warning",
-  stale: "history",
-  eol: "calendar",
-  clear: "pass",
 };

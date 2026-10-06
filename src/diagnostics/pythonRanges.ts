@@ -1,6 +1,8 @@
+// Locates dependencies in requirements*.txt (one per line) and pyproject.toml (line-based, no TOML parser).
 import { requirementName } from "../lockfile/python";
 import { namesMatch } from "../util/version";
 
+/** Offsets of the line declaring `packageName` (matched with normalization), or undefined. */
 export function findPythonDependencyOffsets(
   text: string,
   fileName: string,
@@ -12,6 +14,7 @@ export function findPythonDependencyOffsets(
   return findRequirementsOffsets(text, packageName);
 }
 
+/** Dependency name on the line at `offset`, if that line declares one. */
 export function findPythonDependencyNameAtOffset(
   text: string,
   fileName: string,
@@ -55,6 +58,7 @@ function findTomlOffsets(text: string, packageName: string): { start: number; en
   return undefined;
 }
 
+/** Text of the line containing `offset`. */
 function lineAt(text: string, offset: number): string {
   const start = text.lastIndexOf("\n", Math.max(0, offset - 1)) + 1;
   const end = text.indexOf("\n", offset);

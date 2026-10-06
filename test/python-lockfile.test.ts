@@ -5,7 +5,6 @@ import path from "node:path";
 import { afterEach, describe, it } from "node:test";
 import { findLockfiles } from "../src/lockfile/npm";
 import {
-  parsePipfileLock,
   parsePoetryLockfile,
   parseRequirementsFile,
   parseUvLockfile,
@@ -96,30 +95,6 @@ describe("poetry.lock parsing", () => {
     assert.deepEqual(
       packages.map((pkg) => `${pkg.name}@${pkg.version}`),
       ["certifi@2024.2.2"]
-    );
-  });
-});
-
-describe("Pipfile.lock parsing", () => {
-  it("reads default and develop pins and skips VCS entries", async () => {
-    const filename = await writeTemp(
-      "Pipfile.lock",
-      JSON.stringify({
-        default: {
-          requests: { version: "==2.31.0" },
-          local: { version: "==0.1.0", path: "." },
-        },
-        develop: {
-          pytest: { version: "==8.0.0" },
-          editable: { git: "https://github.com/foo/bar.git" },
-        },
-      })
-    );
-
-    const packages = await parsePipfileLock(filename);
-    assert.deepEqual(
-      packages.map((pkg) => `${pkg.name}@${pkg.version}`).sort(),
-      ["pytest@8.0.0", "requests@2.31.0"]
     );
   });
 });

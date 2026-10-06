@@ -1,11 +1,28 @@
+/**
+ * OSV.dev client. The rest of the scan never sees a raw response.
+ *
+ * `queryBatch` asks which advisory ids affect each installed version, in chunks
+ * of 1000, and follows `next_page_token` when a package has more advisories than
+ * one page. `hydrateVulns` then loads the full record for each id. Withdrawn
+ * advisories are dropped. The id list is cached per version; a full record is
+ * reused until OSV's `modified` timestamp changes. Fetches for the same id are
+ * shared in flight, because one advisory often covers many packages in one scan.
+ *
+ * Fixed versions come only from SEMVER and ECOSYSTEM ranges for the package
+ * being scored. GIT ranges are ignored: those versions are not sent to OSV.
+ * A range that only publishes `last_affected` is treated as fixed in the next patch.
+ */
 import { CVSS20, CVSS30, CVSS31, CVSS40 } from "@pandatix/js-cvss";
 import { fetchJson, mapPool } from "../util/http";
+import { packageVersionKey } from "../util/packageKey";
 import { nextPatchAfter } from "../util/version";
 import type { RiskCache } from "../cache/store";
 import { osvEcosystem, type Ecosystem, type PackageRef, type VulnSummary } from "../types";
 
+// OSV.dev API: querybatch returns only vuln ids per package; /vulns/{id} returns full records.
 const OSV_BATCH = "https://api.osv.dev/v1/querybatch";
 const OSV_VULN = "https://api.osv.dev/v1/vulns";
+// OSV accepts up to 1000 queries per querybatch request.
 const BATCH_SIZE = 1000;
 
 interface OsvBatchVulnRef {
@@ -48,6 +65,7 @@ interface OsvVuln {
   affected?: OsvAffected[];
 }
 
+/** Splits `arr` into groups of at most `size`. */
 function chunk<T>(arr: T[], size: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < arr.length; i += size) {
@@ -56,6 +74,11 @@ function chunk<T>(arr: T[], size: number): T[][] {
   return out;
 }
 
+/**
+ * First usable score on the record: a bare number, otherwise a CVSS 2, 3, or 4
+ * vector. A vector that fails to parse is skipped so one bad advisory cannot
+ * fail the scan. `database_specific.cvss.score` is the fallback.
+ */
 export function parseCvssScore(vuln: Pick<OsvVuln, "severity" | "database_specific">): number | undefined {
   for (const s of vuln.severity ?? []) {
     if (!s.score) {
@@ -97,6 +120,11 @@ export function parseCvssScore(vuln: Pick<OsvVuln, "severity" | "database_specif
   return undefined;
 }
 
+/**
+ * The database's own label wins when it is CRITICAL, HIGH, MODERATE, or LOW,
+ * even if the numeric score would land in a different band. Otherwise the
+ * score is banded at 9, 7, and 4.
+ */
 function severityFromScore(
   score: number | undefined,
   dbSeverity?: unknown
@@ -120,6 +148,12 @@ function severityFromScore(
   return "LOW";
 }
 
+/**
+ * Keyword check that can raise an advisory to critical. An explicit denial
+ * ("no public exploit", "not exploited") wins over any later match, including
+ * an exploit-db link. "proof of concept" in the writeup counts, so this
+ * over-flags; it is not an exploit-maturity rating.
+ */
 export function detectPublicExploit(vuln: Pick<OsvVuln, "details" | "references" | "database_specific">): boolean {
   const blob = `${vuln.details ?? ""} ${JSON.stringify(vuln.database_specific ?? {})}`.toLowerCase();
   if (
@@ -151,6 +185,12 @@ export function detectPublicExploit(vuln: Pick<OsvVuln, "details" | "references"
   );
 }
 
+/**
+ * Fix versions for this package only. One OSV record can list several affected
+ * packages, and a fix for a different package must not become this package's
+ * bump. GIT ranges are skipped. `last_affected` has no `fixed` event, so the
+ * next patch is the first version outside the range.
+ */
 function fixedForPackage(vuln: OsvVuln, packageName: string, ecosystem: Ecosystem): string[] {
   const expected = osvEcosystem(ecosystem).toLowerCase();
   const fixed: string[] = [];
@@ -182,6 +222,10 @@ function fixedForPackage(vuln: OsvVuln, packageName: string, ecosystem: Ecosyste
   return [...new Set(fixed)];
 }
 
+/**
+ * The fields scoring and the detail view read. The summary falls back to the
+ * first 160 characters of the details, then to the id, so a reason is never empty.
+ */
 export function toVulnSummary(
   raw: OsvVuln,
   packageName: string,
@@ -203,6 +247,7 @@ export function toVulnSummary(
   };
 }
 
+/** One ref per vuln id (later entries win). */
 function dedupeVulnRefs(refs: OsvBatchVulnRef[]): OsvBatchVulnRef[] {
   const map = new Map<string, OsvBatchVulnRef>();
   for (const r of refs) {
@@ -211,11 +256,18 @@ function dedupeVulnRefs(refs: OsvBatchVulnRef[]): OsvBatchVulnRef[] {
   return [...map.values()];
 }
 
+/** OSV.dev client with caching: per-package hits from cache, full records cached by id + modified time. */
 export class OsvClient {
   private readonly inFlightVulns = new Map<string, Promise<OsvVuln>>();
 
   constructor(private readonly cache: RiskCache) {}
 
+  /**
+   * Advisory ids for each `ecosystem:name@version`. Cached versions are skipped
+   * unless `force`. Uncached versions are sent in chunks of 1000 and the id
+   * list is written back, including packages that have no advisories, so a
+   * clean package is not queried again until the hit expires.
+   */
   async queryBatch(
     packages: PackageRef[],
     opts?: { force?: boolean }
@@ -224,9 +276,9 @@ export class OsvClient {
     const toQuery: PackageRef[] = [];
 
     for (const pkg of packages) {
-      const key = `${pkg.ecosystem}:${pkg.name}@${pkg.version}`;
+      const key = packageVersionKey(pkg);
       if (!opts?.force) {
-        const hit = this.cache.getPackageHit(pkg.name, pkg.version, undefined, pkg.ecosystem);
+        const hit = this.cache.getPackageHit(key);
         if (hit) {
           result.set(
             key,
@@ -248,20 +300,21 @@ export class OsvClient {
             modifiedById[v.id] = v.modified;
           }
         }
-        this.cache.setPackageHit(
-          pkg.name,
-          pkg.version,
-          vulns.map((v) => v.id),
-          modifiedById,
-          pkg.ecosystem
-        );
-        result.set(`${pkg.ecosystem}:${pkg.name}@${pkg.version}`, vulns);
+        const key = packageVersionKey(pkg);
+        this.cache.setPackageHit(key, vulns.map((v) => v.id), modifiedById);
+        result.set(key, vulns);
       });
     }
 
     return result;
   }
 
+  /**
+   * One querybatch chunk. Packages that return `next_page_token` are retried
+   * on the next page; packages that are finished drop out, and the result
+   * index stays aligned with the original `packages` array. More than 8 pages
+   * throws rather than silently truncating the advisory list.
+   */
   private async queryBatchWithPagination(packages: PackageRef[]): Promise<OsvBatchVulnRef[][]> {
     const accumulated: OsvBatchVulnRef[][] = packages.map(() => []);
     let active: Array<{ index: number; query: OsvQuery }> = packages.map((p, index) => ({
@@ -308,6 +361,12 @@ export class OsvClient {
     return accumulated;
   }
 
+  /**
+   * Full records for the ids from querybatch. A cached record is reused only
+   * when its `modified` timestamp still matches; a changed advisory is
+   * refetched. Callers scoring different packages in parallel share one
+   * request per id. Withdrawn records are omitted rather than scored.
+   */
   async hydrateVulns(
     packageName: string,
     refs: OsvBatchVulnRef[],

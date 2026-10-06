@@ -2,6 +2,7 @@ import { fetchJson } from "../util/http";
 import type { RiskCache } from "../cache/store";
 import type { RuntimeEolInfo } from "../types";
 
+// endoflife.date API: release cycles per product, cached for a day.
 const EOL_API = "https://endoflife.date/api/v1/products";
 const EOL_TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -17,6 +18,7 @@ interface EolProductResponse {
   };
 }
 
+/** Node major from `engines.node` / .nvmrc, or undefined for ranges (">=18", "||") that don't name one runtime. */
 export function parseDeclaredNodeMajor(enginesNode?: string): string | undefined {
   if (!enginesNode) {
     return undefined;
@@ -32,6 +34,7 @@ export function parseDeclaredNodeMajor(enginesNode?: string): string | undefined
   return m?.[1];
 }
 
+/** Python `major.minor` from a pin, or undefined for ranges (">=3.9") that don't name one runtime. */
 export function parseDeclaredPythonRelease(requiresPython?: string): string | undefined {
   if (!requiresPython) {
     return undefined;
@@ -44,6 +47,7 @@ export function parseDeclaredPythonRelease(requiresPython?: string): string | un
   return match?.[1];
 }
 
+/** Looks up end-of-life dates for the project's declared Node / Python runtime. */
 export class EolClient {
   constructor(private readonly cache: RiskCache) {}
 
@@ -63,6 +67,7 @@ export class EolClient {
     return this.runtimeEol("nodejs", major);
   }
 
+/** Matches `declared` to a release cycle; an unknown cycle is reported as not EOL rather than guessed. */
   private async runtimeEol(product: string, declared: string): Promise<RuntimeEolInfo | undefined> {
     const cycles = await this.getProductCycles(product);
     const cycle =
@@ -95,6 +100,7 @@ export class EolClient {
     };
   }
 
+/** Release list for a product, cached (the `v1:` key prefix versions the cached shape). */
   private async getProductCycles(product: string): Promise<EolRelease[]> {
     const cacheKey = `v1:${product}`;
     const cached = this.cache.getEol(cacheKey, EOL_TTL_MS);

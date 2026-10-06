@@ -7,7 +7,7 @@ function summary(byTier: Partial<ScanSummary["byTier"]>): ScanSummary {
   return {
     scannedAt: Date.now(),
     packageCount: 10,
-    byTier: { critical: 0, high: 0, stale: 0, eol: 0, clear: 0, ...byTier },
+    byTier: { critical: 0, high: 0, stale: 0, eol: 0, ...byTier },
     results: [],
     errors: [],
   };
@@ -27,7 +27,6 @@ function risk(overrides: Partial<RiskResult> = {}): RiskResult {
         ecosystem: "npm",
         direct: true,
         imported: true,
-        usage: "direct",
       },
       vulns: [{ id: "GHSA-test", aliases: [], summary: "ReDoS", severity: "HIGH", cvssScore: 7.5, hasPublicExploit: false, fixedVersions: ["4.17.22"], references: [] }],
     },
@@ -55,7 +54,6 @@ describe("tree presentation", () => {
               ecosystem: "pypi",
               direct: true,
               imported: true,
-              usage: "direct",
             },
             vulns: [],
           },

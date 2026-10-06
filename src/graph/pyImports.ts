@@ -1,3 +1,8 @@
+/**
+ * Top-level module names from `import x` / `from x import y` lines (relative imports skipped).
+ * Line-based on purpose: no parser needed to know a package is used.
+ * Import names can differ from PyPI names; callers match with normalization.
+ */
 export function extractImportedPythonPackages(text: string): string[] {
   const names: string[] = [];
   for (const line of text.split(/\r?\n/)) {

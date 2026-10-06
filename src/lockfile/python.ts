@@ -1,44 +1,29 @@
+/**
+ * Python manifest and lockfile parsing. Line-based (no TOML dependency): reads uv.lock and
+ * poetry.lock (same `[[package]]` layout), requirements*.txt and pyproject.toml.
+ * Only registry-hosted packages are returned; git/path/editable sources are skipped.
+ */
 import * as fs from "fs/promises";
-import type { LockPackage } from "./npm";
+import type { LockPackage } from "./types";
 
+/** Direct dependency names and the `requires-python` constraint declared by a pyproject.toml. */
 export interface PythonManifest {
   direct: Set<string>;
   requiresPython?: string;
 }
 
-export async function parseUvLockfile(lockfilePath: string): Promise<LockPackage[]> {
+/** uv.lock and poetry.lock both use `[[package]]` blocks with `name` / `version`. */
+async function parseTomlLockfile(lockfilePath: string): Promise<LockPackage[]> {
   return parseTomlPackageBlocks(await fs.readFile(lockfilePath, "utf8"));
 }
 
-export async function parsePoetryLockfile(lockfilePath: string): Promise<LockPackage[]> {
-  return parseTomlPackageBlocks(await fs.readFile(lockfilePath, "utf8"));
-}
+export const parseUvLockfile = parseTomlLockfile;
+export const parsePoetryLockfile = parseTomlLockfile;
 
-export async function parsePipfileLock(lockfilePath: string): Promise<LockPackage[]> {
-  const json = JSON.parse(await fs.readFile(lockfilePath, "utf8")) as Record<
-    string,
-    Record<string, { version?: string; git?: string; path?: string; file?: string }>
-  >;
-  const out = new Map<string, LockPackage>();
-  for (const section of ["default", "develop"]) {
-    const deps = json[section];
-    if (!deps || typeof deps !== "object") {
-      continue;
-    }
-    for (const [name, meta] of Object.entries(deps)) {
-      if (!meta || meta.git || meta.path || meta.file) {
-        continue;
-      }
-      const version = meta.version?.replace(/^==/, "");
-      if (!name || !version) {
-        continue;
-      }
-      out.set(`${name}@${version}`, pypiPackage(name, version));
-    }
-  }
-  return [...out.values()];
-}
-
+/**
+ * requirements*.txt: every named requirement is "direct", but only `==` pins become scannable
+ * packages. `unpinned` counts the rest so the scan can report reduced coverage.
+ */
 export async function parseRequirementsFile(filePath: string): Promise<{
   packages: LockPackage[];
   direct: Set<string>;
@@ -76,6 +61,10 @@ export async function parseRequirementsFile(filePath: string): Promise<{
   return { packages, direct, unpinned };
 }
 
+/**
+ * pyproject.toml: direct names from PEP 621 (`project.dependencies`, optional groups,
+ * `dependency-groups`) and Poetry tables, plus `requires-python`.
+ */
 export async function readPythonManifest(manifestPath: string): Promise<PythonManifest> {
   const raw = await fs.readFile(manifestPath, "utf8");
   const direct = new Set<string>();
@@ -125,6 +114,7 @@ export async function readPythonManifest(manifestPath: string): Promise<PythonMa
   return { direct, requiresPython };
 }
 
+/** Collects name/version per `[[package]]` block; a non-registry `source` marks the block to skip. */
 function parseTomlPackageBlocks(raw: string): LockPackage[] {
   const out = new Map<string, LockPackage>();
   let name: string | undefined;
@@ -171,6 +161,7 @@ function parseTomlPackageBlocks(raw: string): LockPackage[] {
   return [...out.values()];
 }
 
+/** `lockPath` has no node_modules nesting for PyPI, so it is a flat `pypi/<name>`. */
 function pypiPackage(name: string, version: string): LockPackage {
   return {
     name,
@@ -180,6 +171,7 @@ function pypiPackage(name: string, version: string): LockPackage {
   };
 }
 
+/** Distribution name at the start of a requirement spec (before extras, markers or version). */
 export function requirementName(spec: string): string | undefined {
   const cleaned = spec.trim().replace(/^['"]|['"]$/g, "");
   const match = cleaned.match(/^([A-Za-z0-9][A-Za-z0-9._-]*)/);

@@ -1,17 +1,34 @@
+/**
+ * Extension host wiring. `activate` registers views and commands before any await,
+ * because VS Code rejects a view that has no data provider yet. `bindWorkspace`
+ * then attaches the scan to the first open folder: its cache, lockfile watcher,
+ * and daily rescan.
+ *
+ * One scan runs at a time. A request that arrives mid-scan collapses into
+ * `pendingScan` and runs when the current one finishes; if any queued request
+ * asked to bypass the cache, the rerun does too. Results from a cancelled scan,
+ * or from a folder that is no longer active, are discarded so they cannot
+ * overwrite the scan that belongs to the new folder.
+ *
+ * State lives at module scope because the extension host calls `activate` once per window.
+ */
 import * as vscode from "vscode";
 import { getConfig } from "./config";
+import { applySafeFix } from "./commands/applySafeFix";
 import { askAgentFix, copyAgentPrompt } from "./commands/askAgentFix";
-import { PackageJsonCodeActions } from "./diagnostics/PackageJsonCodeActions";
-import { PackageJsonDiagnostics } from "./diagnostics/PackageJsonDiagnostics";
-import { PythonDiagnostics } from "./diagnostics/PythonDiagnostics";
+import { ManifestCodeActions } from "./diagnostics/ManifestCodeActions";
+import { ManifestDiagnostics } from "./diagnostics/ManifestDiagnostics";
+import { npmManifest, pythonManifest, WORKSPACE_WATCH_GLOB } from "./diagnostics/manifests";
+import { openUrl } from "./util/openUrl";
 import { ScanPipeline } from "./scan/pipeline";
 import { DepRiskDecorationProvider } from "./tree/decorations";
 import { DepRiskTreeProvider } from "./tree/DepRiskTreeProvider";
 import { OverviewView } from "./tree/OverviewView";
 import { RiskDetailView } from "./tree/RiskDetailView";
-import { headline } from "./tree/presentation";
-import type { RiskResult, ScanSummary } from "./types";
+import { TIER_ICON_ID, headline } from "./tree/presentation";
+import { TIER_ORDER, type RiskResult, type ScanSummary } from "./types";
 
+// Bound folder, the pipeline that owns its cache, and the single in-flight scan.
 let pipeline: ScanPipeline | undefined;
 let statusBar: vscode.StatusBarItem;
 let dailyTimer: NodeJS.Timeout | undefined;
@@ -22,10 +39,11 @@ let activeFolder: vscode.WorkspaceFolder | undefined;
 let tree: DepRiskTreeProvider;
 let overview: OverviewView;
 let decorations: DepRiskDecorationProvider;
-let diagnostics: PackageJsonDiagnostics;
-let pythonDiagnostics: PythonDiagnostics;
+let diagnostics: ManifestDiagnostics;
+let pythonDiagnostics: ManifestDiagnostics;
 let lockWatcher: vscode.FileSystemWatcher | undefined;
 
+/** Registers all UI and commands synchronously, then binds the first workspace folder in the background. */
 export function activate(context: vscode.ExtensionContext): void {
   // Register tree views before any await so Cursor/VS Code never shows
   // "There is no data provider registered that can provide view data."
@@ -40,8 +58,8 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.window.registerFileDecorationProvider(decorations)
   );
 
-  diagnostics = new PackageJsonDiagnostics();
-  pythonDiagnostics = new PythonDiagnostics();
+  diagnostics = new ManifestDiagnostics(npmManifest);
+  pythonDiagnostics = new ManifestDiagnostics(pythonManifest);
 
   statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
   statusBar.command = "depRisk.show";
@@ -62,9 +80,11 @@ export function activate(context: vscode.ExtensionContext): void {
         { language: "toml", pattern: "**/pyproject.toml" },
         { pattern: "**/pyproject.toml" },
       ],
-      new PackageJsonCodeActions([diagnostics, pythonDiagnostics]),
+      new ManifestCodeActions([diagnostics, pythonDiagnostics]),
       { providedCodeActionKinds: [vscode.CodeActionKind.QuickFix] }
     ),
+    // Palette commands have no tree row, so handlers fall back to pickRisk().
+    // A tree click passes the row; Apply Safe Fix tooltips pass only name + ecosystem.
     vscode.commands.registerCommand("depRisk.show", async () => {
       await focusDepRiskView();
       const folder = requireFolder(false);
@@ -84,6 +104,18 @@ export function activate(context: vscode.ExtensionContext): void {
         await askAgentFix(risk);
       }
     }),
+    vscode.commands.registerCommand("depRisk.applySafeFix", async (item?: { risk?: RiskResult; name?: string; ecosystem?: string }) => {
+      // Tooltip links pass only name + ecosystem.
+      const risk =
+        item?.risk ??
+        tree.getSummary()?.results.find(
+          (r) => r.signals.pkg.name === item?.name && r.signals.pkg.ecosystem === item?.ecosystem
+        ) ??
+        (await pickRisk());
+      if (risk) {
+        await applySafeFix(risk);
+      }
+    }),
     vscode.commands.registerCommand("depRisk.copyAgentPrompt", async (item?: { risk: RiskResult }) => {
       const risk = item?.risk ?? (await pickRisk());
       if (risk) {
@@ -97,15 +129,10 @@ export function activate(context: vscode.ExtensionContext): void {
       }
     }),
     vscode.commands.registerCommand("depRisk.openAdvisory", async (item?: { risk?: RiskResult; url?: string }) => {
-      const url = item?.url ?? item?.risk?.advisoryUrls[0] ?? item?.risk?.changelogUrl;
+      const risk = item?.url ? undefined : (item?.risk ?? (await pickRisk()));
+      const url = item?.url ?? risk?.advisoryUrls[0] ?? risk?.changelogUrl;
       if (url) {
-        await vscode.env.openExternal(vscode.Uri.parse(url));
-        return;
-      }
-      const risk = item?.risk ?? (await pickRisk());
-      const fallback = risk?.advisoryUrls[0] ?? risk?.changelogUrl;
-      if (fallback) {
-        await vscode.env.openExternal(vscode.Uri.parse(fallback));
+        await openUrl(url);
         return;
       }
       void vscode.window.showInformationMessage("No advisory or changelog URL is available for this item.");
@@ -113,7 +140,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("depRisk.openChangelog", async (item?: { risk: RiskResult }) => {
       const risk = item?.risk ?? (await pickRisk());
       if (risk?.changelogUrl) {
-        await vscode.env.openExternal(vscode.Uri.parse(risk.changelogUrl));
+        await openUrl(risk.changelogUrl);
       }
     }),
     vscode.workspace.onDidChangeWorkspaceFolders(() => {
@@ -121,6 +148,8 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration("depRisk") && activeFolder) {
+        // Re-score with the new thresholds, but keep cached OSV and registry
+        // responses. Refresh, the lockfile watcher, and the daily timer bypass them.
         resetDailyTimer();
         void runScan(activeFolder, false);
       }
@@ -133,6 +162,7 @@ export function activate(context: vscode.ExtensionContext): void {
   });
 }
 
+/** Cancels any running scan and releases timers/watchers (other disposables are in context.subscriptions). */
 export function deactivate(): void {
   scanCancellation?.cancel();
   if (dailyTimer) {
@@ -141,6 +171,10 @@ export function deactivate(): void {
   lockWatcher?.dispose();
 }
 
+/**
+ * (Re)binds to the first workspace folder: creates its pipeline, watches manifests/lockfiles
+ * for changes, restarts the daily timer and kicks off a scan. With no folder, clears all UI.
+ */
 async function bindWorkspace(): Promise<void> {
   const folder = vscode.workspace.workspaceFolders?.[0];
   const folderChanged = activeFolder?.uri.toString() !== folder?.uri.toString();
@@ -166,13 +200,13 @@ async function bindWorkspace(): Promise<void> {
 
   activeFolder = folder;
   pipeline = new ScanPipeline(folder.uri.fsPath);
-  await pipeline.init();
+  await pipeline.cache.init();
 
   lockWatcher?.dispose();
   lockWatcher = vscode.workspace.createFileSystemWatcher(
     new vscode.RelativePattern(
       folder,
-      "{package.json,**/package.json,**/package-lock.json,**/npm-shrinkwrap.json,**/pnpm-lock.yaml,**/yarn.lock,**/bun.lock,**/uv.lock,**/poetry.lock,**/Pipfile.lock,**/requirements*.txt,**/pyproject.toml,.nvmrc,.node-version,.python-version,runtime.txt}"
+      WORKSPACE_WATCH_GLOB
     )
   );
   const schedule = debounce(() => {
@@ -188,6 +222,7 @@ async function bindWorkspace(): Promise<void> {
   void runScan(folder, false);
 }
 
+/** Active folder, or undefined (with an optional warning) when no folder is open. */
 function requireFolder(showWarning = true): vscode.WorkspaceFolder | undefined {
   const folder = activeFolder ?? vscode.workspace.workspaceFolders?.[0];
   if (!folder) {
@@ -201,6 +236,7 @@ function requireFolder(showWarning = true): vscode.WorkspaceFolder | undefined {
   return folder;
 }
 
+/** Restarts the periodic forced rescan using `depRisk.dailyRescanHours` (minimum 1h). */
 function resetDailyTimer(): void {
   if (dailyTimer) {
     clearInterval(dailyTimer);
@@ -218,6 +254,12 @@ function resetDailyTimer(): void {
   );
 }
 
+/**
+ * Single-flight scan. A second call while one is running replaces `pendingScan`
+ * (a forced request stays forced) and returns the same promise. The progress
+ * bar's cancel token is forwarded onto `scanCancellation`, which a folder
+ * change also cancels.
+ */
 function runScan(folder: vscode.WorkspaceFolder, force: boolean): Thenable<void> {
   if (scanInFlight) {
     pendingScan = {
@@ -241,9 +283,9 @@ function runScan(folder: vscode.WorkspaceFolder, force: boolean): Thenable<void>
       cancellable: true,
     },
     async (progress, token) => {
+      // The progress UI and a folder switch share one token, so either one aborts the scan.
       const cancelSubscription = token.onCancellationRequested(() => cancellation.cancel());
       try {
-        await scanPipeline.init();
         statusBar.text = "$(sync~spin) Dep Risk";
         const summary = await scanPipeline.scan(folder, {
           force,
@@ -253,6 +295,8 @@ function runScan(folder: vscode.WorkspaceFolder, force: boolean): Thenable<void>
             statusBar.text = `$(sync~spin) Dep Risk: ${phase}`;
           },
         });
+        // The folder may have changed during the await. Drop this summary so it
+        // cannot replace the results for the folder now bound.
         if (
           cancellation.token.isCancellationRequested ||
           activeFolder?.uri.toString() !== folder.uri.toString()
@@ -294,20 +338,11 @@ function runScan(folder: vscode.WorkspaceFolder, force: boolean): Thenable<void>
   return scanInFlight;
 }
 
+/** Status bar: per-tier counts with icons; warning icon when some sources failed. */
 function updateStatus(summary: ScanSummary): void {
-  const parts: string[] = [];
-  if (summary.byTier.critical) {
-    parts.push(`$(flame)${summary.byTier.critical}`);
-  }
-  if (summary.byTier.high) {
-    parts.push(`$(warning)${summary.byTier.high}`);
-  }
-  if (summary.byTier.stale) {
-    parts.push(`$(history)${summary.byTier.stale}`);
-  }
-  if (summary.byTier.eol) {
-    parts.push(`$(calendar)${summary.byTier.eol}`);
-  }
+  const parts = TIER_ORDER.filter((tier) => summary.byTier[tier]).map(
+    (tier) => `$(${TIER_ICON_ID[tier]})${summary.byTier[tier]}`
+  );
   const icon = summary.errors.length ? "$(warning)" : "$(shield)";
   const result = parts.length ? parts.join(" ") : summary.errors.length ? "incomplete" : "$(pass) clear";
   statusBar.text = `${icon} Dep Risk ${result}`;
@@ -322,6 +357,7 @@ function updateStatus(summary: ScanSummary): void {
     .join("\n");
 }
 
+/** Quick pick fallback for commands invoked from the palette instead of a tree row. */
 async function pickRisk() {
   const summary = tree.getSummary();
   if (!summary?.results.length) {
@@ -340,6 +376,7 @@ async function pickRisk() {
   return picked?.risk;
 }
 
+/** Focuses the Dep Risk view in whichever container exists (Cursor may only show the Explorer one). */
 async function focusDepRiskView(): Promise<void> {
   for (const command of ["depRisk.sidebar.focus", "depRisk.explorer.focus"]) {
     try {
@@ -351,6 +388,7 @@ async function focusDepRiskView(): Promise<void> {
   }
 }
 
+/** Trailing-edge debounce. */
 function debounce(fn: () => void, ms: number): () => void {
   let t: NodeJS.Timeout | undefined;
   return () => {

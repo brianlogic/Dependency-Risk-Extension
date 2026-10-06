@@ -1,6 +1,14 @@
+// "Ask Agent" flow: build a fix prompt for a risk and hand it to the editor's AI chat.
 import * as vscode from "vscode";
 import type { RiskResult } from "../types";
+import { delay } from "../util/http";
+import { openUrl } from "../util/openUrl";
+import { isDowngrade } from "../util/version";
 
+/**
+ * Prompt text for the agent. Without a known fixed version it asks for investigation instead of
+ * inventing a target; downgrades and major bumps add explicit warnings.
+ */
 export function buildAgentPrompt(risk: RiskResult): string {
   const pkg = risk.signals.pkg;
   const cves =
@@ -10,8 +18,8 @@ export function buildAgentPrompt(risk: RiskResult): string {
   const ecosystem = pkg.ecosystem === "pypi" ? "PyPI" : "npm";
   const lockfiles =
     pkg.ecosystem === "pypi"
-      ? "uv.lock / poetry.lock / Pipfile.lock / requirements.txt"
-      : "package-lock.json / pnpm-lock.yaml / yarn.lock / bun.lock";
+      ? "uv.lock / poetry.lock / requirements.txt"
+      : "package-lock.json";
 
   const lines = risk.recommendedBump
     ? [
@@ -23,6 +31,12 @@ export function buildAgentPrompt(risk: RiskResult): string {
         `Investigate ${cves} affecting ${ecosystem} package \`${pkg.name}@${pkg.version}\`. No complete fixed version is published in the advisory data, so do not invent or blindly apply a target version.`,
         `Determine whether a mitigation, override, replacement package, or upstream update is appropriate. Run the test suite after any change and keep unrelated dependency versions unchanged.`,
       ];
+
+  if (isDowngrade(risk)) {
+    lines.push(
+      `WARNING: This moves \`${pkg.name}\` backwards. Before changing anything, check for APIs or features used in this repo that don't exist in \`${risk.recommendedBump}\`, and report them rather than silently removing code.`
+    );
+  }
 
   if (risk.isMajorBump) {
     lines.push(
@@ -40,6 +54,7 @@ export function buildAgentPrompt(risk: RiskResult): string {
   return lines.join("\n");
 }
 
+/** No stable API accepts a prompt, so: copy to clipboard, open the first available chat command, paste. Falls back to a notice. */
 async function openAgentWithPrompt(prompt: string): Promise<void> {
   // Cursor chat commands may exist but ignore programmatic prompt arguments.
   // Copy first, open a known chat surface, then paste into the focused input.
@@ -80,10 +95,26 @@ async function openAgentWithPrompt(prompt: string): Promise<void> {
   }
 }
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+/** Modal warning for major bumps and downgrades; true only if the user chooses to proceed. */
+export async function confirmRiskyBump(risk: RiskResult): Promise<boolean> {
+  const { name, version } = risk.signals.pkg;
+  const downgrade = isDowngrade(risk);
+  if (!downgrade && !risk.isMajorBump) {
+    return true;
+  }
+  const proceed = "Proceed anyway";
+  const changelog = "Review changelog";
+  const message = downgrade
+    ? `This moves ${name} backwards from ${version} to ${risk.recommendedBump}. Features or APIs added in newer versions may be missing, so code that uses them can break. Review the changelog before proceeding.`
+    : `Upgrading ${name} to ${risk.recommendedBump} requires a major version bump with likely breaking changes. Review the changelog before proceeding.`;
+  const choice = await vscode.window.showWarningMessage(message, { modal: true }, proceed, changelog);
+  if (choice === changelog && risk.changelogUrl) {
+    await openUrl(risk.changelogUrl);
+  }
+  return choice === proceed;
 }
 
+/** Runtime (EOL) risks just open the EOL page since no single package fixes them; others open the agent (confirming first only for a downgrade). */
 export async function askAgentFix(risk: RiskResult): Promise<void> {
   if (risk.tier === "eol") {
     const open = "Open EOL page";
@@ -92,34 +123,22 @@ export async function askAgentFix(risk: RiskResult): Promise<void> {
       open
     );
     if (choice === open && risk.changelogUrl) {
-      await vscode.env.openExternal(vscode.Uri.parse(risk.changelogUrl));
+      await openUrl(risk.changelogUrl);
     }
     return;
   }
 
   const prompt = buildAgentPrompt(risk);
 
-  if (risk.isMajorBump) {
-    const proceed = "Proceed anyway";
-    const changelog = "Review changelog";
-    const choice = await vscode.window.showWarningMessage(
-      `Upgrading ${risk.signals.pkg.name} to ${risk.recommendedBump} requires a major version bump with likely breaking changes. Review the changelog before proceeding.`,
-      { modal: true },
-      proceed,
-      changelog
-    );
-    if (choice === changelog && risk.changelogUrl) {
-      await vscode.env.openExternal(vscode.Uri.parse(risk.changelogUrl));
-      return;
-    }
-    if (choice !== proceed) {
-      return;
-    }
+  // A major bump is the point of asking the agent (its prompt covers breaking changes), so only a downgrade confirms.
+  if (isDowngrade(risk) && !(await confirmRiskyBump(risk))) {
+    return;
   }
 
   await openAgentWithPrompt(prompt);
 }
 
+/** Copies the agent prompt without opening any chat. */
 export async function copyAgentPrompt(risk: RiskResult): Promise<void> {
   const prompt = buildAgentPrompt(risk);
   await vscode.env.clipboard.writeText(prompt);

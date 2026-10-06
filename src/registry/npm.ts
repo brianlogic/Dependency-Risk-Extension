@@ -1,15 +1,18 @@
 import { fetchJson } from "../util/http";
 import type { RiskCache } from "../cache/store";
+import { packageNameKey } from "../util/packageKey";
+import {
+  REGISTRY_META_TTL_MS,
+  normalizeRepoUrl,
+  registryChangelogUrl,
+  type PackageRegistryMeta,
+  type RegistryClient,
+} from "./meta";
 
+// npm registry client. Metadata comes from the full packument; only the fields we use are cached.
 const REGISTRY = "https://registry.npmjs.org";
-const META_TTL_MS = 12 * 60 * 60 * 1000;
 
-export interface NpmPackageMeta {
-  latest: string;
-  lastPublish?: string;
-  homepage?: string;
-  repositoryUrl?: string;
-}
+export type NpmPackageMeta = PackageRegistryMeta;
 
 interface NpmRegistryResponse {
   "dist-tags"?: { latest?: string };
@@ -18,6 +21,7 @@ interface NpmRegistryResponse {
   repository?: { url?: string } | string;
 }
 
+/** Scoped names keep the `@scope` and encode the slash (`@a/b` -> `@a%2Fb`), as the registry expects. */
 function encodeNpmName(name: string): string {
   if (name.startsWith("@")) {
     const slash = name.indexOf("/");
@@ -29,64 +33,35 @@ function encodeNpmName(name: string): string {
   return encodeURIComponent(name);
 }
 
-function normalizeRepoUrl(repo: NpmRegistryResponse["repository"]): string | undefined {
-  if (!repo) {
-    return undefined;
-  }
-  const url = typeof repo === "string" ? repo : repo.url;
-  if (!url) {
-    return undefined;
-  }
-  return url
-    .replace(/^git\+/, "")
-    .replace(/^ssh:\/\/git@/, "https://")
-    .replace(/^git@github\.com:/, "https://github.com/")
-    .replace(/\.git$/, "");
-}
-
-export class NpmRegistry {
+/** `latest` dist-tag and its publish time from the npm registry. */
+export class NpmRegistry implements RegistryClient {
   constructor(private readonly cache: RiskCache) {}
 
   async getMeta(name: string, opts?: { force?: boolean }): Promise<NpmPackageMeta | undefined> {
-    const cached = opts?.force ? undefined : this.cache.getNpmMeta(name, META_TTL_MS);
+    const key = packageNameKey({ ecosystem: "npm", name });
+    const cached = opts?.force ? undefined : this.cache.getMeta(key, REGISTRY_META_TTL_MS);
     if (cached) {
-      const raw = cached.raw as NpmRegistryResponse;
-      return {
-        latest: cached.latest,
-        lastPublish: raw.time?.[cached.latest],
-        homepage: raw.homepage,
-        repositoryUrl: normalizeRepoUrl(raw.repository),
-      };
+      return cached;
     }
 
     const raw = await fetchJson<NpmRegistryResponse>(`${REGISTRY}/${encodeNpmName(name)}`, {
       timeoutMs: 20_000,
     });
-
     const latest = raw["dist-tags"]?.latest;
     if (!latest) {
       return undefined;
     }
-    const lastPublish = raw.time?.[latest];
-    this.cache.setNpmMeta(name, latest, lastPublish, raw);
-    return {
+    const meta: NpmPackageMeta = {
       latest,
-      lastPublish,
+      lastPublish: raw.time?.[latest],
       homepage: raw.homepage,
       repositoryUrl: normalizeRepoUrl(raw.repository),
     };
+    this.cache.setMeta(key, meta);
+    return meta;
   }
 
   changelogUrl(name: string, meta?: NpmPackageMeta): string {
-    if (meta?.repositoryUrl && /github\.com|gitlab\.com/i.test(meta.repositoryUrl)) {
-      return `${meta.repositoryUrl}/releases`;
-    }
-    if (meta?.homepage) {
-      return meta.homepage;
-    }
-    if (meta?.repositoryUrl) {
-      return meta.repositoryUrl;
-    }
-    return `https://www.npmjs.com/package/${name}?activeTab=versions`;
+    return registryChangelogUrl(meta, `https://www.npmjs.com/package/${name}?activeTab=versions`);
   }
 }

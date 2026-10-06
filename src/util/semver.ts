@@ -1,11 +1,7 @@
+// npm-side version math on top of the `semver` package (`coerce` tolerates ranges and prefixes).
 import * as semver from "semver";
 
-export function coerceVersion(version: string): string | null {
-  const cleaned = version.replace(/^[=v]/, "").trim();
-  const coerced = semver.coerce(cleaned);
-  return coerced ? coerced.version : null;
-}
-
+/** Major versions between `current` and `latest` (never negative); undefined if unparsable. */
 export function majorsBehind(current: string, latest: string): number | undefined {
   const a = semver.coerce(current);
   const b = semver.coerce(latest);
@@ -15,6 +11,12 @@ export function majorsBehind(current: string, latest: string): number | undefine
   return Math.max(0, b.major - a.major);
 }
 
+export function isDowngrade(from: string, to: string): boolean {
+  const a = semver.coerce(from);
+  const b = semver.coerce(to);
+  return !!a && !!b && semver.lt(b, a);
+}
+
 export function isMajorBump(from: string, to: string): boolean {
   const a = semver.coerce(from);
   const b = semver.coerce(to);
@@ -22,57 +24,6 @@ export function isMajorBump(from: string, to: string): boolean {
     return false;
   }
   return b.major > a.major;
-}
-
-/**
- * Pick the lowest version >= current that satisfies "fixed" — prefer same major,
- * then same minor ladder, else the lowest overall fixed version newer than current.
- */
-export function pickSafeBump(
-  current: string,
-  latest: string | undefined,
-  fixedVersions: string[]
-): string | undefined {
-  const cur = semver.coerce(current);
-  if (!cur) {
-    return latest;
-  }
-
-  const candidates = new Set<string>();
-  for (const f of fixedVersions) {
-    const c = semver.coerce(f);
-    if (c && semver.gt(c, cur)) {
-      candidates.add(c.version);
-    }
-  }
-  if (latest) {
-    const l = semver.coerce(latest);
-    if (l && semver.gt(l, cur)) {
-      candidates.add(l.version);
-    }
-  }
-
-  const sorted = [...candidates].sort(semver.compare);
-  if (sorted.length === 0) {
-    return undefined;
-  }
-
-  const sameMajor = sorted.filter((v) => semver.major(v) === cur.major);
-  if (sameMajor.length) {
-    const sameMinor = sameMajor.filter((v) => semver.minor(v) === cur.minor);
-    return sameMinor[0] ?? sameMajor[0];
-  }
-
-  // Unavoidable major — still pick the lowest major jump that appears in fixed set
-  const fixedOnly = fixedVersions
-    .map((f) => semver.coerce(f)?.version)
-    .filter((v): v is string => !!v && semver.gt(v, cur))
-    .sort(semver.compare);
-  if (fixedOnly.length) {
-    return fixedOnly[0];
-  }
-
-  return sorted[0];
 }
 
 /**
@@ -111,30 +62,6 @@ export function pickSafeBumpForAdvisories(
   return required.sort(semver.rcompare)[0];
 }
 
-/**
- * Extract remediation versions from OSV range events.
- * `fixed` is preferred. When only `last_affected` is present, the next
- * semver patch is the lowest version that is no longer in the affected range.
- */
-export function fixedVersionsFromOsvEvents(
-  events: Array<{ introduced?: string; fixed?: string; last_affected?: string }>
-): string[] {
-  const fixed: string[] = [];
-  for (const e of events) {
-    if (e.fixed) {
-      fixed.push(e.fixed);
-      continue;
-    }
-    if (e.last_affected) {
-      const next = nextPatchAfter(e.last_affected);
-      if (next) {
-        fixed.push(next);
-      }
-    }
-  }
-  return fixed;
-}
-
 export function nextPatchAfter(version: string): string | undefined {
   const coerced = semver.coerce(version);
   if (!coerced) {
@@ -144,11 +71,15 @@ export function nextPatchAfter(version: string): string | undefined {
 }
 
 /** True when a lockfile version is a concrete registry semver OSV can query. */
+/** True for plain registry versions; git/file/link/workspace specs can't be looked up in OSV. */
 export function isQueryableNpmVersion(version: string): boolean {
   if (!version) {
     return false;
   }
   if (/^(git\+?|git@|http:|https:|file:|link:|workspace:|npm:|github:|gitlab:)/i.test(version)) {
+    return false;
+  }
+  if (/^[<>=~^]/.test(version)) {
     return false;
   }
   if (version.includes("://") || version.includes("/")) {

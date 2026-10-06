@@ -1,14 +1,12 @@
+/**
+ * npm-flavoured lockfile helpers: package.json reading, package-lock.json parsing, lockfile
+ * discovery and classification, and merging results from several lockfiles.
+ */
 import * as fs from "fs/promises";
 import * as path from "path";
+import type { LockPackage } from "./types";
 
-export interface LockPackage {
-  name: string;
-  version: string;
-  /** Dependency path key from lockfile (e.g. node_modules/lodash). */
-  lockPath: string;
-  ecosystem?: import("../types").Ecosystem;
-}
-
+/** Dependency tables and `engines.node` read from a package.json. */
 export interface ManifestDeps {
   dependencies: Record<string, string>;
   devDependencies: Record<string, string>;
@@ -39,6 +37,7 @@ interface NpmLockV2 {
   >;
 }
 
+/** Package name from a lock path, e.g. `a/node_modules/@s/b` -> `@s/b` (innermost wins). */
 export function nameFromNodeModulesPath(lockPath: string): string | undefined {
   const parts = lockPath.split("/node_modules/");
   const leaf =
@@ -73,6 +72,7 @@ export function isHoistedOrWorkspaceInstall(lockPath: string, name: string): boo
   return !prefix.includes("node_modules");
 }
 
+/** Reads dependency tables and `engines.node` from a package.json. */
 export async function readPackageManifest(manifestPath: string): Promise<ManifestDeps> {
   const raw = await fs.readFile(manifestPath, "utf8");
   const json = JSON.parse(raw) as {
@@ -91,6 +91,7 @@ export async function readPackageManifest(manifestPath: string): Promise<Manifes
   };
 }
 
+/** Names declared by the user in any dependency table. */
 export function directDependencyNames(manifest: ManifestDeps): Set<string> {
   return new Set([
     ...Object.keys(manifest.dependencies),
@@ -152,25 +153,16 @@ export async function parseNpmLockfile(lockfilePath: string): Promise<LockPackag
   return [...out.values()];
 }
 
+/** Nesting depth: 1 = top-level install; used to prefer the shallowest copy when merging. */
 export function lockPathDepth(lockPath: string): number {
   return lockPath.split("/node_modules/").length;
 }
 
+// Caps for monorepos: at most 50 lockfiles, walking 8 directories deep.
 export const LOCKFILE_DISCOVERY_LIMIT = 50;
 export const LOCKFILE_WALK_DEPTH = 8;
 
-const LOCKFILE_NAMES = new Set([
-  "package-lock.json",
-  "npm-shrinkwrap.json",
-  "pnpm-lock.yaml",
-  "yarn.lock",
-  "bun.lock",
-  "bun.lockb",
-  "uv.lock",
-  "poetry.lock",
-  "Pipfile.lock",
-]);
-
+// Directories never searched for lockfiles.
 const SKIP_DIRS = new Set([
   "node_modules",
   ".git",
@@ -192,33 +184,16 @@ const SKIP_DIRS = new Set([
   "site-packages",
 ]);
 
-export type LockfileKind =
-  | "npm"
-  | "pnpm"
-  | "yarn"
-  | "bun"
-  | "bun-binary"
-  | "uv"
-  | "poetry"
-  | "pipfile"
-  | "requirements";
+export type LockfileKind = "npm" | "uv" | "poetry" | "requirements" | "unsupported";
 
+/** Lockfiles we recognize only so the scan can warn that they are not read. */
+const UNSUPPORTED_LOCKFILES = new Set(["pnpm-lock.yaml", "yarn.lock", "bun.lock", "bun.lockb", "Pipfile.lock"]);
+
+/** Classifies a lockfile by file name; `unsupported` files are discovered only to be reported. */
 export function lockfileKind(filePath: string): LockfileKind | undefined {
   const base = path.basename(filePath);
   if (base === "package-lock.json" || base === "npm-shrinkwrap.json") {
     return "npm";
-  }
-  if (base === "pnpm-lock.yaml") {
-    return "pnpm";
-  }
-  if (base === "yarn.lock") {
-    return "yarn";
-  }
-  if (base === "bun.lock") {
-    return "bun";
-  }
-  if (base === "bun.lockb") {
-    return "bun-binary";
   }
   if (base === "uv.lock") {
     return "uv";
@@ -226,8 +201,8 @@ export function lockfileKind(filePath: string): LockfileKind | undefined {
   if (base === "poetry.lock") {
     return "poetry";
   }
-  if (base === "Pipfile.lock") {
-    return "pipfile";
+  if (UNSUPPORTED_LOCKFILES.has(base)) {
+    return "unsupported";
   }
   if (/^requirements.*\.txt$/i.test(base)) {
     return "requirements";
@@ -235,6 +210,7 @@ export function lockfileKind(filePath: string): LockfileKind | undefined {
   return undefined;
 }
 
+/** Combines lockfiles, keeping one entry per ecosystem:name@version with the shallowest lock path. */
 export function mergeLockPackages(batches: LockPackage[][]): LockPackage[] {
   const out = new Map<string, LockPackage>();
   for (const batch of batches) {
@@ -282,33 +258,4 @@ export async function findLockfiles(workspaceRoot: string): Promise<string[]> {
 
   await walk(workspaceRoot, 0);
   return found;
-}
-
-export async function findPackageJsonFiles(workspaceRoot: string): Promise<string[]> {
-  // Root + one level of workspaces packages/* — keep scan bounded
-  const roots = [path.join(workspaceRoot, "package.json")];
-  const pkgDirs = ["packages", "apps", "services"];
-  for (const dir of pkgDirs) {
-    const base = path.join(workspaceRoot, dir);
-    try {
-      const entries = await fs.readdir(base, { withFileTypes: true });
-      for (const e of entries) {
-        if (e.isDirectory()) {
-          roots.push(path.join(base, e.name, "package.json"));
-        }
-      }
-    } catch {
-      // no such dir
-    }
-  }
-  const existing: string[] = [];
-  for (const p of roots) {
-    try {
-      await fs.access(p);
-      existing.push(p);
-    } catch {
-      // skip
-    }
-  }
-  return existing;
 }

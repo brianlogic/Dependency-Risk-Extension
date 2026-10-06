@@ -12,20 +12,20 @@ describe("persistent cache", () => {
     try {
       const cache = new RiskCache(filename);
       await cache.init();
-      cache.setPackageHit("one", "1.0.0", ["GHSA-one"], {
+      cache.setPackageHit("npm:one@1.0.0", ["GHSA-one"], {
         "GHSA-one": "2026-01-01T00:00:00Z",
       });
       await cache.flush();
 
-      cache.setPackageHit("two", "2.0.0", [], {});
+      cache.setPackageHit("npm:two@2.0.0", [], {});
       await cache.flush();
 
       const reloaded = new RiskCache(filename);
       await reloaded.init();
-      assert.deepEqual(reloaded.getPackageHit("one", "1.0.0")?.vulnIds, [
+      assert.deepEqual(reloaded.getPackageHit("npm:one@1.0.0")?.vulnIds, [
         "GHSA-one",
       ]);
-      assert.deepEqual(reloaded.getPackageHit("two", "2.0.0")?.vulnIds, []);
+      assert.deepEqual(reloaded.getPackageHit("npm:two@2.0.0")?.vulnIds, []);
     } finally {
       await rm(directory, { force: true, recursive: true });
     }

@@ -1,7 +1,9 @@
 import * as vscode from "vscode";
 import { headline, packageGlance } from "./presentation";
+import { cssVar, escapeAttr, escapeHtml } from "./webviewHtml";
 import { TIER_LABEL, TIER_ORDER, type RiskResult, type RiskTier, type ScanSummary } from "../types";
 
+/** Sidebar webview: tier distribution bar plus the worst packages; clicking a row opens the detail panel. */
 export class OverviewView implements vscode.WebviewViewProvider {
   static readonly viewType = "depRisk.overview";
 
@@ -39,6 +41,7 @@ export class OverviewView implements vscode.WebviewViewProvider {
   }
 }
 
+// A per-render nonce for the webview CSP script tag.
 function renderOverview(webview: vscode.Webview, summary: ScanSummary | undefined): string {
   const nonce = String(Date.now());
   const body = summary ? overviewBody(summary) : `<p class="muted">Scan a folder with a lockfile to see the risk mix.</p>`;
@@ -157,7 +160,7 @@ function overviewBody(summary: ScanSummary): string {
     })
     .join("");
 
-  const legend = TIER_ORDER.filter((tier) => tier !== "clear" && summary.byTier[tier] > 0)
+  const legend = TIER_ORDER.filter((tier) => summary.byTier[tier] > 0)
     .map(
       (tier) =>
         `<span><span class="swatch" style="background:var(--${cssVar(tier)})"></span>${summary.byTier[tier]} ${TIER_LABEL[tier]}</span>`
@@ -193,27 +196,3 @@ function packageRow(risk: RiskResult): string {
   </button>`;
 }
 
-function cssVar(tier: RiskTier): string {
-  return tier === "critical" ? "crit" : tier;
-}
-
-function escapeHtml(value: string): string {
-  return value.replace(/[&<>"']/g, (char) => {
-    switch (char) {
-      case "&":
-        return "&amp;";
-      case "<":
-        return "&lt;";
-      case ">":
-        return "&gt;";
-      case '"':
-        return "&quot;";
-      default:
-        return "&#39;";
-    }
-  });
-}
-
-function escapeAttr(value: string): string {
-  return escapeHtml(value);
-}

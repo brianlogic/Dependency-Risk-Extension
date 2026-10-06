@@ -2,18 +2,28 @@
   "name": "dependency-version-risk",
   "displayName": "Dependency Version Risk",
   "description": "Live CVE, stale, and EOL risk for npm and PyPI dependencies — sidebar tree, manifest diagnostics, and agent-assisted upgrades.",
-  "version": "0.2.1",
+  "version": "0.2.3",
   "publisher": "BT23",
   "engines": {
     "vscode": "^1.85.0"
   },
   "license": "MIT",
   "icon": "media/icon.png",
-  "keywords": ["npm", "python", "pypi", "pip", "security", "cve", "dependencies", "osv", "cursor"], 
+  "keywords": [
+    "npm",
+    "python",
+    "pypi",
+    "pip",
+    "security",
+    "cve",
+    "dependencies",
+    "osv",
+    "cursor"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/brianlogic/Dependency-Risk-Extension.git"
-    },
+  },
   "categories": [
     "Other",
     "Linters"
@@ -102,6 +112,11 @@
         "icon": "$(sparkle)"
       },
       {
+        "command": "depRisk.applySafeFix",
+        "title": "Apply Safe Fix",
+        "icon": "$(wrench)"
+      },
+      {
         "command": "depRisk.showRisk",
         "title": "Dep Risk: View Risk Details",
         "icon": "$(preview)"
@@ -129,14 +144,19 @@
       ],
       "view/item/context": [
         {
-          "command": "depRisk.askAgentFix",
+          "command": "depRisk.applySafeFix",
           "when": "(view == depRisk.sidebar || view == depRisk.explorer) && viewItem =~ /depRisk\\.package/",
           "group": "inline@1"
         },
         {
-          "command": "depRisk.showRisk",
+          "command": "depRisk.askAgentFix",
           "when": "(view == depRisk.sidebar || view == depRisk.explorer) && viewItem =~ /depRisk\\.package/",
           "group": "inline@2"
+        },
+        {
+          "command": "depRisk.showRisk",
+          "when": "(view == depRisk.sidebar || view == depRisk.explorer) && viewItem =~ /depRisk\\.package/",
+          "group": "inline@3"
         },
         {
           "command": "depRisk.openAdvisory",
@@ -208,6 +228,7 @@
     "watch": "node esbuild.js --watch",
     "check": "tsc --noEmit",
     "test": "tsx --test test/**/*.test.ts",
+    "fixture:reset": "git checkout -- fixtures/sample-app && git clean -fdx fixtures/sample-app",
     "verify": "npm run check && npm test && npm run compile",
     "package": "vsce package --no-dependencies",
     "publish": "vsce publish --no-dependencies"

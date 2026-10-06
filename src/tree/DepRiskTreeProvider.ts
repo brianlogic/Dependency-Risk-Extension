@@ -1,13 +1,15 @@
 import * as vscode from "vscode";
+import { isDowngrade } from "../util/version";
 import { advisoryUrl } from "../osv/urls";
 import { riskResourceUri, themeIcon } from "./decorations";
-import { headline, packageGlance, packageTooltip, reasonIcon, usageLabel, worstTier } from "./presentation";
+import { TIER_ICON_ID, headline, type DisplayTier, packageGlance, packageTooltip, reasonIcon, usageLabel, worstTier } from "./presentation";
 import { TIER_LABEL, TIER_ORDER, type RiskResult, type RiskTier, type ScanSummary, type VulnSummary } from "../types";
 
+// Tree structure: Summary / scan-warning / Tier -> Package -> Advisory + Reason rows. Items carry `risk` so commands get it as their argument.
 export type DepRiskTreeItem = SummaryItem | TierItem | PackageItem | AdvisoryItem | ReasonItem | MessageItem;
 
 export class MessageItem extends vscode.TreeItem {
-  constructor(message: string, icon: string, tooltip?: string, tier?: RiskTier) {
+  constructor(message: string, icon: string, tooltip?: string, tier?: DisplayTier) {
     super(message, vscode.TreeItemCollapsibleState.None);
     this.contextValue = "depRisk.message";
     this.iconPath = themeIcon(icon, tier);
@@ -45,10 +47,10 @@ export class TierItem extends vscode.TreeItem {
     super(`${TIER_LABEL[tier]}`, vscode.TreeItemCollapsibleState.Expanded);
     this.description = `${count} package${count === 1 ? "" : "s"}`;
     this.contextValue = "depRisk.tier";
-    this.iconPath = themeIcon(tier === "critical" ? "flame" : tier === "high" ? "warning" : tier === "stale" ? "history" : "calendar", tier);
+    this.iconPath = themeIcon(TIER_ICON_ID[tier], tier);
     this.resourceUri = riskResourceUri("tier", tier, tier);
     const tooltip = new vscode.MarkdownString(
-      `$(${tier === "critical" ? "flame" : tier === "high" ? "warning" : tier === "stale" ? "history" : "calendar"}) **${TIER_LABEL[tier]}** — ${count} package${count === 1 ? "" : "s"}`
+      `$(${TIER_ICON_ID[tier]}) **${TIER_LABEL[tier]}** — ${count} package${count === 1 ? "" : "s"}`
     );
     tooltip.supportThemeIcons = true;
     this.tooltip = tooltip;
@@ -68,7 +70,7 @@ export class PackageItem extends vscode.TreeItem {
     this.tooltip = tooltip;
     this.contextValue = risk.isMajorBump ? "depRisk.package.major" : "depRisk.package";
     this.iconPath = themeIcon(
-      risk.signals.vulns[0]?.hasPublicExploit ? "flame" : risk.tier === "critical" ? "error" : risk.tier === "high" ? "warning" : risk.tier === "stale" ? "history" : "calendar",
+      risk.signals.vulns[0]?.hasPublicExploit ? "flame" : risk.tier === "critical" ? "error" : TIER_ICON_ID[risk.tier],
       risk.tier
     );
     this.resourceUri = riskResourceUri("pkg", risk.tier, `${pkg.name}@${pkg.version}`);
@@ -117,6 +119,7 @@ export class ReasonItem extends vscode.TreeItem {
   }
 }
 
+/** Tree data for both the sidebar and Explorer views; `setSummary` swaps the data and refreshes. */
 export class DepRiskTreeProvider implements vscode.TreeDataProvider<DepRiskTreeItem> {
   private summary: ScanSummary | undefined;
   private readonly _onDidChange = new vscode.EventEmitter<DepRiskTreeItem | undefined | void>();
@@ -141,7 +144,7 @@ export class DepRiskTreeProvider implements vscode.TreeDataProvider<DepRiskTreeI
     }
 
     if (!element) {
-      const tiers = TIER_ORDER.filter((t) => t !== "clear" && (this.summary!.byTier[t] ?? 0) > 0);
+      const tiers = TIER_ORDER.filter((t) => (this.summary!.byTier[t] ?? 0) > 0);
       const items: DepRiskTreeItem[] = [new SummaryItem(this.summary)];
       if (this.summary.errors.length) {
         items.push(
@@ -184,7 +187,7 @@ export class DepRiskTreeProvider implements vscode.TreeDataProvider<DepRiskTreeI
       if (element.risk.recommendedBump) {
         items.push(
           new ReasonItem(
-            `Safe target: ${element.risk.recommendedBump}${element.risk.isMajorBump ? " (major)" : ""}`,
+            `Safe target: ${element.risk.recommendedBump}${element.risk.isMajorBump ? " (major)" : ""}${isDowngrade(element.risk) ? " (downgrade)" : ""}`,
             element.risk.tier
           )
         );
