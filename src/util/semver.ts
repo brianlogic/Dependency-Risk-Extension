@@ -79,6 +79,9 @@ export function isQueryableNpmVersion(version: string): boolean {
   if (/^(git\+?|git@|http:|https:|file:|link:|workspace:|npm:|github:|gitlab:)/i.test(version)) {
     return false;
   }
+  if (/^[<>=~^]/.test(version)) {
+    return false;
+  }
   if (version.includes("://") || version.includes("/")) {
     return false;
   }
